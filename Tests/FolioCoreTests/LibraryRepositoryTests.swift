@@ -60,7 +60,10 @@ final class LibraryRepositoryTests: XCTestCase {
         try repository.saveDocument(document, for: paper.id)
         let reopened = try XCTUnwrap(PDFDocument(url: repository.documentURL(for: paper.id)))
         XCTAssertEqual(PDFNotes.read(from: reopened).map(\.body), ["A question about the evidence"])
-        XCTAssertEqual(reopened.page(at: 0)?.annotations.count, 2)
+        let annotations = try XCTUnwrap(reopened.page(at: 0)).annotations
+        // Some macOS versions also serialize a companion Popup for a Text comment.
+        XCTAssertEqual(annotations.filter { $0.type == "Text" }.count, 1)
+        XCTAssertEqual(annotations.filter { $0.type == "Highlight" }.count, 1)
         XCTAssertEqual(reopened.page(at: 0)?.bounds(for: .mediaBox), bounds)
         XCTAssertEqual(try Data(contentsOf: source), original)
     }

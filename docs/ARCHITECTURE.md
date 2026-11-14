@@ -21,7 +21,7 @@ App → shared Workspace → repository load → library. NSOpenPanel → tempor
 
 Views call Workspace. PDFKit page notifications defer main-actor publication and check active document identity. PDFCanvas suppresses page-change notifications while assigning/restoring documents. Records/UI are one-based; PDFKit uses zero-based indices. No global PDFView singleton.
 
-Selection → per-line/per-page PDFKit bounds → grouped annotations → managed PDF atomic save → Undo registration → revision refresh. On a failed write, the in-memory change is rolled back. Reverse transactions save the PDF again. Undo resets when opening a paper; text editor undo belongs to AppKit, while annotation Undo uses explicit buttons. Star/position changes write metadata separately and do not export as PDF comments. PDF content is authoritative for notes and marks, avoiding a second sidecar annotation format.
+Selection → per-line/per-page PDFKit bounds → grouped annotations → managed PDF atomic save → Undo registration → revision refresh. On a failed write, the in-memory change is rolled back. Reverse transactions save the PDF again. Undo resets when opening a paper; text editor undo belongs to AppKit, while annotation Undo uses explicit buttons. A main-actor AnnotationTransaction box keeps PDFKit references isolated across older SDKs' Sendable Undo callback; assumeIsolated preserves synchronous inverse registration when the main-actor buttons invoke it. Star/position changes write metadata separately and do not export as PDF comments. PDF content is authoritative for notes and marks, avoiding a second sidecar annotation format.
 
 ## Extension boundaries
 

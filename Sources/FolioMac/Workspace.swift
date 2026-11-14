@@ -163,6 +163,23 @@ final class Workspace: ObservableObject {
         apply(add: [], remove: [(pdfPage, note.annotation)], document: document, name: "Delete Note")
     }
 
+    /// PDFKit references never cross actors. The box can be captured by older SDKs'
+    /// Sendable undo callback; its contents remain main-actor isolated.
+    @MainActor
+    private final class AnnotationTransaction {
+        let add: [(PDFPage, PDFAnnotation)]
+        let remove: [(PDFPage, PDFAnnotation)]
+        let document: PDFDocument
+        let name: String
+
+        init(add: [(PDFPage, PDFAnnotation)], remove: [(PDFPage, PDFAnnotation)], document: PDFDocument, name: String) {
+            self.add = add
+            self.remove = remove
+            self.document = document
+            self.name = name
+        }
+    }
+
     private func apply(add: [(PDFPage, PDFAnnotation)], remove: [(PDFPage, PDFAnnotation)],
                        document: PDFDocument, name: String) {
         guard self.document === document, let id = activeID, let repository else { return }
@@ -170,8 +187,14 @@ final class Workspace: ObservableObject {
         add.forEach { $0.0.addAnnotation($0.1) }
         do {
             try repository.saveDocument(document, for: id)
+            let transaction = AnnotationTransaction(add: add, remove: remove, document: document, name: name)
             annotationUndo.registerUndo(withTarget: self) { owner in
-                owner.apply(add: remove, remove: add, document: document, name: name)
+                // Undo is invoked only by this Workspace's main-actor reader buttons.
+                // Keep it synchronous so inverse registration stays in the same Undo event.
+                MainActor.assumeIsolated {
+                    owner.apply(add: transaction.remove, remove: transaction.add,
+                                document: transaction.document, name: transaction.name)
+                }
             }
             annotationUndo.setActionName(name)
             revision += 1
