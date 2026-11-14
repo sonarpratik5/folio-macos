@@ -1,0 +1,209 @@
+[
+  {
+    "id": "library",
+    "title": "Local library, copies and persistence",
+    "keywords": [
+      "import",
+      "storage",
+      "resume",
+      "stars",
+      "metadata",
+      "notes",
+      "library"
+    ],
+    "rules": [
+      "Sources/AGENTS.md",
+      "Tests/AGENTS.md"
+    ],
+    "files": [
+      "Sources/FolioCore/PaperRecord.swift",
+      "Sources/FolioCore/LibraryRepository.swift",
+      "Sources/FolioCore/PDFNotes.swift",
+      "Sources/FolioMac/LibraryView.swift",
+      "Sources/FolioMac/Workspace.swift",
+      "Tests/FolioCoreTests/LibraryRepositoryTests.swift"
+    ],
+    "docs": [
+      "docs/STATE.md",
+      "docs/ARCHITECTURE.md",
+      "docs/QUALITY.md"
+    ],
+    "symbols": [
+      "LibraryRepository.load",
+      "importPDF",
+      "saveDocument",
+      "Workspace.open",
+      "changedPage",
+      "PDFNotes.read"
+    ],
+    "checks": [
+      "swift test"
+    ]
+  },
+  {
+    "id": "reader",
+    "title": "PDF rendering, navigation and annotations",
+    "keywords": [
+      "pdf",
+      "selection",
+      "highlight",
+      "underline",
+      "note",
+      "find",
+      "search",
+      "outline",
+      "page",
+      "undo",
+      "export"
+    ],
+    "rules": [
+      "Sources/AGENTS.md",
+      "Tests/AGENTS.md"
+    ],
+    "files": [
+      "Sources/FolioMac/PDFCanvas.swift",
+      "Sources/FolioMac/ReaderView.swift",
+      "Sources/FolioMac/Workspace.swift",
+      "Sources/FolioCore/PDFNotes.swift",
+      "Tests/FolioCoreTests/LibraryRepositoryTests.swift"
+    ],
+    "docs": [
+      "docs/ARCHITECTURE.md",
+      "docs/PORTING.md",
+      "docs/QUALITY.md",
+      "docs/DEVELOPMENT.md"
+    ],
+    "symbols": [
+      "PDFCanvas.Coordinator",
+      "Workspace.apply",
+      "markSelection",
+      "addNote",
+      "exportCopy",
+      "ReaderView.find"
+    ],
+    "checks": [
+      "swift test",
+      "disposable GUI check: docs/DEVELOPMENT.md"
+    ]
+  },
+  {
+    "id": "shell",
+    "title": "Native sidebar, theme, app bundle and settings",
+    "keywords": [
+      "swiftui",
+      "macos",
+      "design",
+      "classic",
+      "studio",
+      "sidebar",
+      "theme",
+      "dark",
+      "window",
+      "build",
+      "icon"
+    ],
+    "rules": [
+      "Sources/AGENTS.md",
+      "scripts/AGENTS.md"
+    ],
+    "files": [
+      "Sources/FolioMac/FolioApp.swift",
+      "Sources/FolioMac/WorkspaceView.swift",
+      "Sources/FolioMac/SettingsView.swift",
+      "Sources/FolioMac/Theme.swift",
+      "Package.swift",
+      "scripts/build-app.sh",
+      "Resources/Info.plist",
+      "Assets/Icon-512.png"
+    ],
+    "docs": [
+      "docs/DEVELOPMENT.md",
+      "docs/WEB_REFERENCE.md",
+      "docs/DECISIONS.md"
+    ],
+    "symbols": [
+      "FolioApp",
+      "WorkspaceView.sidebar",
+      "FolioTheme",
+      "SettingsView"
+    ],
+    "checks": [
+      "swift build",
+      "scripts/build-app.sh",
+      "disposable GUI check: docs/DEVELOPMENT.md"
+    ]
+  },
+  {
+    "id": "harness",
+    "title": "Context discovery, checkpoint and CI",
+    "keywords": [
+      "agent",
+      "harness",
+      "context",
+      "handoff",
+      "docs",
+      "routing",
+      "ci",
+      "workflow"
+    ],
+    "rules": [
+      "docs/AGENTS.md",
+      "scripts/AGENTS.md"
+    ],
+    "files": [
+      "scripts/context.py",
+      ".github/workflows/verify.yml"
+    ],
+    "docs": [
+      "docs/AGENT_WORKFLOW.md",
+      "docs/README.md",
+      "docs/context/routes.json",
+      "docs/TESTING.md"
+    ],
+    "symbols": [
+      "route",
+      "check"
+    ],
+    "checks": [
+      "python3 scripts/context.py --check",
+      "git diff --check"
+    ]
+  },
+  {
+    "id": "parity",
+    "title": "Web behavior reference and future native port",
+    "keywords": [
+      "web",
+      "port",
+      "parity",
+      "ai",
+      "assistant",
+      "provider",
+      "review",
+      "arxiv",
+      "attachment",
+      "writing",
+      "migration"
+    ],
+    "rules": [
+      "Sources/AGENTS.md",
+      "docs/AGENTS.md"
+    ],
+    "files": [
+      "Sources/FolioMac/ReaderView.swift"
+    ],
+    "docs": [
+      "docs/PORTING.md",
+      "docs/WEB_REFERENCE.md",
+      "docs/DECISIONS.md",
+      "docs/QUALITY.md"
+    ],
+    "symbols": [
+      "ReaderView.inspector"
+    ],
+    "checks": [
+      "verify current human scope before implementation",
+      "python3 scripts/context.py --check"
+    ]
+  }
+]

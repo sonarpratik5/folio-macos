@@ -1,0 +1,15 @@
+name: Verify native starter
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate context harness
+        run: python3 scripts/context.py --check
+      - name: Test managed storage and PDF annotations
+        run: swift test
+      - name: Build native app bundle
+        run: scripts/build-app.sh release
