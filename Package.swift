@@ -8,6 +8,8 @@ let package = Package(
     targets: [
         .target(name: "FolioCore"),
         .executableTarget(name: "FolioMac", dependencies: ["FolioCore"]),
-        .testTarget(name: "FolioCoreTests", dependencies: ["FolioCore"])
+        .executableTarget(name: "FolioPaperTools", dependencies: ["FolioCore"]),
+        .testTarget(name: "FolioCoreTests", dependencies: ["FolioCore"]),
+        .testTarget(name: "FolioMacTests", dependencies: ["FolioMac"])
     ]
 )

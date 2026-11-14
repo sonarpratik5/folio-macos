@@ -11,7 +11,9 @@ Read the handoff, inspect Git status, then run `python3 scripts/context.py "task
 | What matches the web app and what remains? | [Porting map](PORTING.md), [web reference](WEB_REFERENCE.md) |
 | Which choices are settled? | [Decisions](DECISIONS.md) |
 | What needs care? | [Quality and limits](QUALITY.md) |
+| How are PDF tools verified? | [PDF editing verification design](PDF_EDITING_VERIFICATION.md) |
 | How do I build, launch and verify? | [Development](DEVELOPMENT.md), [fresh test evidence](TESTING.md) |
+| How do I use and configure AI? | [Native assistant setup](AI_SETUP.md) |
 | How does agent context stay current? | [Harness workflow](AGENT_WORKFLOW.md) |
 
 Scoped rules: [Sources](../Sources/AGENTS.md), [Tests](../Tests/AGENTS.md), [scripts](../scripts/AGENTS.md), [docs](AGENTS.md). Context is entirely repository-local, with no model calls, background agents or machine-global configuration.

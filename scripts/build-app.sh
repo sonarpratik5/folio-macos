@@ -12,6 +12,7 @@ bin_path="$(swift build -c "$configuration" ${build_options[@]+"${build_options[
 app_path="$PWD/.build/Folio.app"
 mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Resources"
 cp "$bin_path/FolioMac" "$app_path/Contents/MacOS/FolioMac"
+cp "$bin_path/FolioPaperTools" "$app_path/Contents/MacOS/FolioPaperTools"
 cp Resources/Info.plist "$app_path/Contents/Info.plist"
 iconset="$PWD/.build/Folio.iconset"
 mkdir -p "$iconset"

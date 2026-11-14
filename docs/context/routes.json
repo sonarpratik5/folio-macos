@@ -21,7 +21,12 @@
       "Sources/FolioCore/PDFNotes.swift",
       "Sources/FolioMac/LibraryView.swift",
       "Sources/FolioMac/Workspace.swift",
-      "Tests/FolioCoreTests/LibraryRepositoryTests.swift"
+      "Tests/FolioCoreTests/LibraryRepositoryTests.swift",
+      "Sources/FolioCore/ArxivImport.swift",
+      "Sources/FolioCore/LibraryOrganizing.swift",
+      "Sources/FolioMac/LibraryImportViews.swift",
+      "Tests/FolioCoreTests/ArxivAndOrganizingTests.swift",
+      "Sources/FolioMac/LibrarySidebar.swift"
     ],
     "docs": [
       "docs/STATE.md",
@@ -54,7 +59,15 @@
       "outline",
       "page",
       "undo",
-      "export"
+      "export",
+      "tool",
+      "text",
+      "image",
+      "eraser",
+      "edit",
+      "verification",
+      "geometry",
+      "redo"
     ],
     "rules": [
       "Sources/AGENTS.md",
@@ -65,19 +78,45 @@
       "Sources/FolioMac/ReaderView.swift",
       "Sources/FolioMac/Workspace.swift",
       "Sources/FolioCore/PDFNotes.swift",
-      "Tests/FolioCoreTests/LibraryRepositoryTests.swift"
+      "Tests/FolioCoreTests/LibraryRepositoryTests.swift",
+      "Sources/FolioCore/PDFEditing.swift",
+      "Sources/FolioMac/AnnotationEditor.swift",
+      "Tests/FolioCoreTests/PDFEditingTests.swift",
+      "Tests/FolioMacTests/WorkspaceEditingTests.swift",
+      "Sources/FolioCore/ReadingPosition.swift",
+      "Sources/FolioCore/MarginLayout.swift",
+      "Sources/FolioCore/NotesSupport.swift",
+      "Sources/FolioMac/ReaderState.swift",
+      "Sources/FolioMac/ReaderControls.swift",
+      "Sources/FolioMac/MarginMarks.swift",
+      "Sources/FolioMac/NotesInspector.swift",
+      "Sources/FolioMac/Workspace+Notes.swift",
+      "Tests/FolioCoreTests/MarginLayoutTests.swift",
+      "Tests/FolioCoreTests/ReadingPositionTests.swift",
+      "Tests/FolioCoreTests/NotesSupportTests.swift",
+      "Sources/FolioMac/AnnotationPalette.swift",
+      "Sources/FolioMac/InlineText.swift",
+      "Sources/FolioMac/InlineTextStrip.swift",
+      "Tests/FolioMacTests/InlineTextTests.swift",
+      "Tests/FolioMacTests/ReaderRenderTests.swift",
+      "Sources/FolioMac/ReaderSidebarParts.swift",
+      "Tests/FolioMacTests/WebStyleRenderTests.swift"
     ],
     "docs": [
       "docs/ARCHITECTURE.md",
       "docs/PORTING.md",
       "docs/QUALITY.md",
-      "docs/DEVELOPMENT.md"
+      "docs/DEVELOPMENT.md",
+      "docs/PDF_EDITING_VERIFICATION.md"
     ],
     "symbols": [
       "PDFCanvas.Coordinator",
-      "Workspace.apply",
+      "ToolPDFView",
+      "PDFEditing",
+      "PDFEditHistory.commit",
+      "Workspace.saveEditor",
+      "finishEditorIfNeeded",
       "markSelection",
-      "addNote",
       "exportCopy",
       "ReaderView.find"
     ],
@@ -113,6 +152,8 @@
       "Sources/FolioMac/Theme.swift",
       "Package.swift",
       "scripts/build-app.sh",
+      "scripts/qa.sh",
+      "Sources/FolioMac/QAHarness.swift",
       "Resources/Info.plist",
       "Assets/Icon-512.png"
     ],
@@ -199,11 +240,93 @@
       "docs/QUALITY.md"
     ],
     "symbols": [
-      "ReaderView.inspector"
+      "ReaderView",
+      "PDFTool"
     ],
     "checks": [
       "verify current human scope before implementation",
       "python3 scripts/context.py --check"
+    ]
+  },
+  {
+    "id": "assistant",
+    "title": "Native AI chat, overview, paper/web research and saved history",
+    "keywords": [
+      "ai",
+      "assistant",
+      "chat",
+      "provider",
+      "codex",
+      "claude",
+      "overview",
+      "context",
+      "research",
+      "web search",
+      "paper lookup",
+      "conversation",
+      "cancellation",
+      "insights",
+      "keychain",
+      "passkey",
+      "authentication"
+    ],
+    "rules": [
+      "Sources/AGENTS.md",
+      "Tests/AGENTS.md",
+      "docs/AGENTS.md"
+    ],
+    "files": [
+      "Sources/FolioCore/AssistantModels.swift",
+      "Sources/FolioCore/AssistantProvider.swift",
+      "Sources/FolioCore/ClaudeKeyStore.swift",
+      "Sources/FolioCore/AssistantService.swift",
+      "Sources/FolioCore/PaperLookup.swift",
+      "Sources/FolioMac/AISettingsView.swift",
+      "Sources/FolioMac/PaperAssistantView.swift",
+      "Sources/FolioPaperTools/main.swift",
+      "Tests/FolioCoreTests/AssistantTests.swift",
+      "Tests/FolioCoreTests/PaperLookupTests.swift",
+      "Tests/FolioMacTests/PaperAssistantTests.swift",
+      "Sources/FolioCore/AssistantRichText.swift",
+      "Sources/FolioCore/AssistantStream.swift",
+      "Sources/FolioCore/AssistantThreads.swift",
+      "Sources/FolioCore/InsightAnalysis.swift",
+      "Sources/FolioCore/ConceptGraph.swift",
+      "Sources/FolioCore/NativeReviews.swift",
+      "Sources/FolioMac/AssistantRichView.swift",
+      "Sources/FolioMac/AssistantSurface.swift",
+      "Sources/FolioMac/PaperConceptGraphView.swift",
+      "Sources/FolioMac/PaperGlancePanel.swift",
+      "Sources/FolioMac/ReaderPanel.swift",
+      "Sources/FolioMac/AskPanel.swift",
+      "Sources/FolioMac/PaperReviewsView.swift",
+      "Tests/FolioCoreTests/AssistantThreadsTests.swift",
+      "Tests/FolioCoreTests/ConceptGraphTests.swift",
+      "Tests/FolioCoreTests/NativeReviewTests.swift",
+      "Tests/FolioMacTests/ConceptGraphSelectionTests.swift",
+      "Tests/FolioCoreTests/LiveProviderTests.swift",
+      "Sources/FolioMac/InsightsView.swift",
+      "Tests/FolioCoreTests/CredentialSessionTests.swift"
+    ],
+    "docs": [
+      "docs/AI_SETUP.md",
+      "docs/ARCHITECTURE.md",
+      "docs/PORTING.md",
+      "docs/QUALITY.md",
+      "docs/TESTING.md"
+    ],
+    "symbols": [
+      "AssistantService.answer",
+      "AssistantOverview.parse",
+      "AssistantRepository",
+      "AssistantProcessRunner",
+      "PaperLookup.call",
+      "PaperAssistantModel.load"
+    ],
+    "checks": [
+      "swift test",
+      "python3 scripts/context.py --check",
+      "disposable GUI check: docs/DEVELOPMENT.md"
     ]
   }
 ]

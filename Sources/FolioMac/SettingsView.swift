@@ -2,17 +2,20 @@ import SwiftUI
 
 struct SettingsView: View {
     @AppStorage("appearance") private var appearance = "system"
-    @AppStorage("design") private var design = "classic"
+
     var body: some View {
         Form {
             Section("Appearance") {
                 Picker("Color mode", selection: $appearance) {
-                    Text("System").tag("system"); Text("Light").tag("light"); Text("Dark").tag("dark")
+                    Text("System").tag("system")
+                    Text("Light").tag("light")
+                    Text("Dark").tag("dark")
                 }
-                Picker("Accent", selection: $design) {
-                    Text("Classic · forest green").tag("classic")
-                    Text("Studio · slate blue").tag("studio")
-                }
+                Text("Folio uses one calm green and neutral palette, with glass surfaces that adapt to your color mode.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section("AI assistant") {
+                AISettingsView()
             }
             Section("Local library") {
                 Text("PDFs are copied into ~/Library/Application Support/FolioMac/Documents. Notes and marks save to those copies. Reading positions and stars stay in library.json.")
@@ -21,8 +24,11 @@ struct SettingsView: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
-                Text("Folio for Mac · Native SwiftUI + PDFKit starter").font(.caption).foregroundStyle(.secondary)
+                Text("Folio for Mac · Native SwiftUI + PDFKit starter")
+                    .font(.caption).foregroundStyle(.secondary)
             }
-        }.formStyle(.grouped)
+        }
+        .formStyle(.grouped).scrollContentBackground(.hidden).background(FolioBackdrop())
+        .tint(FolioTheme.accent)
     }
 }

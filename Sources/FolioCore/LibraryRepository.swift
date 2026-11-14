@@ -48,14 +48,18 @@ public final class LibraryRepository {
         try encoder.encode(LibrarySnapshot(papers: papers)).write(to: manifestURL, options: .atomic)
     }
 
-    public func importPDF(from source: URL, existing: [PaperRecord]) throws -> PaperRecord {
+    public func importPDF(from source: URL, existing: [PaperRecord], title overrideTitle: String? = nil) throws -> PaperRecord {
         guard let document = PDFDocument(url: source), !document.isLocked, document.pageCount > 0 else {
             throw RepositoryError.invalidPDF
         }
         let title = (document.documentAttributes?[PDFDocumentAttribute.titleAttribute] as? String)?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        let record = PaperRecord(title: title?.isEmpty == false ? title! : source.deletingPathExtension().lastPathComponent,
-                                 pageCount: document.pageCount)
+        let author = (document.documentAttributes?[PDFDocumentAttribute.authorAttribute] as? String)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let chosen = overrideTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let record = PaperRecord(title: chosen?.isEmpty == false ? chosen!
+                                    : title?.isEmpty == false ? title! : source.deletingPathExtension().lastPathComponent,
+                                 pageCount: document.pageCount, author: author?.isEmpty == false ? author : nil)
         let destination = documentURL(for: record.id)
         try fileManager.copyItem(at: source, to: destination)
         do { try save(existing + [record]) }
@@ -69,5 +73,13 @@ public final class LibraryRepository {
     public func saveDocument(_ document: PDFDocument, for id: UUID) throws {
         guard let data = document.dataRepresentation() else { throw RepositoryError.encodingFailed }
         try data.write(to: documentURL(for: id), options: .atomic)
+    }
+
+    /// Removes the record and its managed copy. The manifest is saved first so a failure never orphans a record.
+    public func remove(_ id: UUID, from existing: [PaperRecord]) throws -> [PaperRecord] {
+        let next = existing.filter { $0.id != id }
+        try save(next)
+        try? fileManager.removeItem(at: documentURL(for: id))
+        return next
     }
 }

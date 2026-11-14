@@ -2,7 +2,7 @@
 
 A native SwiftUI + PDFKit starting point for Folio: your paper library, a focused reader, and notes beside the source. Runs as its own Mac application without Edge, Chrome, Node, a web server, or a login screen.
 
-This is a working foundation for a native port, **not full feature parity** with Folio web. AI, advanced editing and web-data migration remain future work. See the [feature-by-feature porting map](docs/PORTING.md).
+This is a working native port with a glass-inspired library, PDF editing and user-triggered AI chat, paper lookup and cited overviews, **not full feature parity** with Folio web. Review analysis, concept graphs, streaming, rendered LaTeX and web-data migration remain incomplete. See the [feature-by-feature porting map](docs/PORTING.md).
 
 ## Run
 
