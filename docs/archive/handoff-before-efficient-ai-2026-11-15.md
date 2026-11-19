@@ -1,0 +1,10 @@
+# Current handoff
+
+## Web-matched Paper at a glance — 2026-11-14
+
+- Request/status: inspect web implementation and apply Paper at a glance as-is to native. Done: three numbered pastel sketch cards, responsive columns/stack, click-to-reveal details, source disclosure, Read/Ask, expanded sheet, regenerate/empty/missing states. Native system typography/controls retained. Overview service, validated saved format and explicit-send boundaries unchanged; web source untouched.
+- Changed: Sources/FolioMac/PaperGlancePanel.swift; opt-in visual fixtures in Tests/FolioMacTests/WebStyleRenderTests.swift; STATE/ARCHITECTURE/PORTING/DECISIONS/TESTING and context route. Preserved all prior dirty work.
+- Fresh checks: local-cache build passes; focused model/render tests 5/5 pass. Full suite with host macOS services: 108 total (33 Mac + 75 core), zero failures, two live-provider skips. Restricted full suite hit graphics/service failures before successful host rerun. Build-app debug succeeds with host icon services; .build/Folio.app signed and deep/strict verified. Context 6 routes/81 paths and git diff --check pass. Exact commands/limits in docs/TESTING.md.
+- Visual/interaction evidence: generated wide/narrow/dark/empty fixtures inspected; missing role fixture rendered. Isolated CUA preview with synthetic saved overview verified selected details, exact source disclosure, Ask attaching passage without sending, saved restore, expanded sheet and source-page navigation. Preview terminated. No real provider, PDF/library or credential edits; no install, commit, push or publish.
+- Limits: older macOS, keyboard/focus, live accessibility toggle changes and provider answer quality not freshly tested. Next action follows the human request.
+- The concurrent startup-crash repair checkpoint (including its installed-app replacement), earlier functionality audit and dotenv checkpoints are preserved in [archive](handoff-before-paper-glance-parity-2026-11-14.md), including prior evidence links. This task did not overwrite the user-installed app; updated deliverable is .build/Folio.app.

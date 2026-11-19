@@ -11,3 +11,4 @@ xcuserdata/
 *.ses
 __pycache__/
 *.pyc
+Models/Skim/AdaptedMiniLM.mlmodelc/

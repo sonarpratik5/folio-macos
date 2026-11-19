@@ -29,6 +29,56 @@ final class PDFEditingTests: XCTestCase {
     }
 
     @MainActor
+    func testHighlightOverlapPreservesUncoveredRegionsOtherMarksAndComments() throws {
+        let document = try fixture(), page = try XCTUnwrap(document.page(at: 0))
+        let old = mark("Keep this comment")
+        old.setValue("original", forAnnotationKey: PDFEditing.groupKey)
+        let underline = PDFAnnotation(bounds: old.bounds, forType: .underline, withProperties: nil)
+        page.addAnnotation(old); page.addAnnotation(underline)
+        let latest = PDFAnnotation(bounds: CGRect(x: 70, y: 100, width: 20, height: 14), forType: .highlight, withProperties: nil)
+        latest.color = .blue
+        let plan = PDFEditing.replacingHighlights([(page, latest)])
+        XCTAssertEqual(plan.remove.count, 1)
+        XCTAssertTrue(plan.remove.first?.1 === old)
+        let fragments = plan.add.map(\.1).filter { $0 !== latest }
+        XCTAssertEqual(fragments.map(\.bounds).sorted { $0.minX < $1.minX },
+                       [CGRect(x: 50, y: 100, width: 20, height: 14), CGRect(x: 90, y: 100, width: 40, height: 14)])
+        XCTAssertTrue(fragments.allSatisfy { !$0.bounds.intersects(latest.bounds) })
+        XCTAssertEqual(fragments.compactMap(\.contents), ["Keep this comment"])
+        XCTAssertTrue(fragments.allSatisfy { PDFEditing.group(of: $0) == "original" })
+        XCTAssertTrue(PDFEditing.replacingHighlights([(page, underline)]).remove.isEmpty)
+        let full = mark("")
+        let covered = PDFEditing.replacingHighlights([(page, full)])
+        XCTAssertEqual(covered.add.filter { $0.1.type == "Highlight" }.count, 1)
+        XCTAssertEqual(covered.add.first { $0.1.type == "Text" }?.1.contents, "Keep this comment")
+        XCTAssertTrue(page.annotations.contains { $0 === underline }) // planning never mutates the page
+    }
+
+    @MainActor
+    func testMultiLineHighlightUsesQuadsAndKeepsOtherPageUntouched() throws {
+        let document = try fixture(), page = try XCTUnwrap(document.page(at: 0))
+        let otherPage = try XCTUnwrap(document.page(at: 1))
+        let old = PDFAnnotation(bounds: CGRect(x: 40, y: 100, width: 100, height: 40), forType: .highlight, withProperties: nil)
+        old.quadrilateralPoints = [CGPoint(x: 0, y: 40), CGPoint(x: 100, y: 40), CGPoint(x: 0, y: 30), CGPoint(x: 100, y: 30),
+                                   CGPoint(x: 0, y: 10), CGPoint(x: 100, y: 10), CGPoint(x: 0, y: 0), CGPoint(x: 100, y: 0)].map { NSValue(point: $0) }
+        page.addAnnotation(old)
+        let untouched = mark(""); otherPage.addAnnotation(untouched)
+        let gap = PDFAnnotation(bounds: CGRect(x: 40, y: 115, width: 100, height: 5), forType: .highlight, withProperties: nil)
+        XCTAssertTrue(PDFEditing.replacingHighlights([(page, gap)]).remove.isEmpty)
+        let latest = PDFAnnotation(bounds: CGRect(x: 40, y: 130, width: 100, height: 10), forType: .highlight, withProperties: nil)
+        let plan = PDFEditing.replacingHighlights([(page, latest)])
+        XCTAssertEqual(plan.remove.count, 1)
+        XCTAssertEqual(plan.add.count, 2)
+        XCTAssertEqual(plan.add.last?.1.bounds, CGRect(x: 40, y: 100, width: 100, height: 10))
+        XCTAssertTrue(otherPage.annotations.first === untouched)
+        let history = PDFEditHistory(document: document) { _ in }
+        try history.commit("Highlight", changes: [.init(page: page, after: plan.add.map(\.1))])
+        let reopened = try XCTUnwrap(PDFDocument(data: XCTUnwrap(document.dataRepresentation())))
+        XCTAssertEqual(reopened.page(at: 0)?.annotations.count, 2)
+        XCTAssertEqual(reopened.page(at: 1)?.annotations.count, 1)
+    }
+
+    @MainActor
     func testBoundedEditingSequencesAgainstIndependentHistoryModel() async throws {
         // Every 4-step sequence over 7 operations: 2,401 sequences, 9,604 transitions.
         // Independent model uses arrays of strings and its own history snapshots.

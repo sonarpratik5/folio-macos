@@ -15,25 +15,43 @@ public struct ReadingPosition: Codable, Equatable {
 /// Local, atomic JSON store for reading positions, kept next to the library manifest.
 public final class ReadingPositionStore {
     private let url: URL
-    private var positions: [UUID: ReadingPosition]
+    private var positions: [UUID: ReadingPosition] = [:]
+    public private(set) var loadError: Error?
 
     public init(root: URL) {
         url = root.appendingPathComponent("reading-positions.json")
-        if let data = try? Data(contentsOf: url),
-           let decoded = try? JSONDecoder().decode([String: ReadingPosition].self, from: data) {
-            positions = Dictionary(uniqueKeysWithValues: decoded.compactMap { key, value in UUID(uuidString: key).map { ($0, value) } })
-        } else { positions = [:] }
+        do { positions = try readPositions() } catch { loadError = error }
+    }
+
+    private func readPositions() throws -> [UUID: ReadingPosition] {
+        guard FileManager.default.fileExists(atPath: url.path) else { return [:] }
+        let decoded = try JSONDecoder().decode([String: ReadingPosition].self, from: Data(contentsOf: url))
+        var result: [UUID: ReadingPosition] = [:]
+        for (key, value) in decoded {
+            guard let id = UUID(uuidString: key), result[id] == nil else {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            result[id] = value
+        }
+        return result
     }
 
     public func position(for id: UUID) -> ReadingPosition? { positions[id] }
 
     public func set(_ position: ReadingPosition, for id: UUID) throws {
+        // Recheck after an external repair; never replace an unreadable store with an empty one.
+        if loadError != nil {
+            do { positions = try readPositions(); loadError = nil }
+            catch { loadError = error; throw error }
+        }
         guard positions[id] != position else { return }
-        positions[id] = position
+        var next = positions
+        next[id] = position
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        let data = try encoder.encode(Dictionary(uniqueKeysWithValues: positions.map { ($0.key.uuidString, $0.value) }))
+        let data = try encoder.encode(Dictionary(uniqueKeysWithValues: next.map { ($0.key.uuidString, $0.value) }))
         try data.write(to: url, options: .atomic)
+        positions = next
     }
 }
 
@@ -67,6 +85,14 @@ public struct NormalizedSearchText {
                     j += 1
                 }
                 if newline, j < ns.length, isLetter(ns.character(at: j)) { i = j; continue }
+            }
+            // ASCII before another ASCII unit cannot start a combining sequence.
+            // Keep the composed-character path at Unicode boundaries (e.g. e + acute).
+            if u >= 0x21, u <= 0x7E, i + 1 == ns.length || ns.character(at: i + 1) < 0x80 {
+                let folded = u >= 0x41 && u <= 0x5A ? u + 0x20 : u
+                out.unicodeScalars.append(UnicodeScalar(folded)!)
+                starts.append(i); ends.append(i + 1); i += 1
+                continue
             }
             let range = ns.rangeOfComposedCharacterSequence(at: i)
             let folded = ns.substring(with: range).folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)

@@ -10,6 +10,7 @@ extension Workspace {
         guard let paper = paper ?? activePaper else { return }
         if kind == .overview { showInsights(for: paper); return }
         guard finishEditorIfNeeded() else { return }
+        insightsMode = false; selectionInsight = nil
         if activeID != paper.id || document == nil { open(paper) } else { reading = true }
         guard activeID == paper.id else { return }
         ensureAIStore()
@@ -39,8 +40,16 @@ extension Workspace {
 extension Workspace {
     func navigate(to section: LibrarySection) {
         guard finishEditorIfNeeded() else { return }
+        clearFolderSelection()
         self.section = section
         reading = false
+    }
+    /// Resume the exact saved conversation, without sending another question.
+    func resumeChat(_ id: UUID, for paper: PaperRecord) {
+        present(.assistant, for: paper)
+        guard reading, activeID == paper.id, let model = activeAIStore?.assistant else { return }
+        model.load(root: repository?.root, record: paper)
+        model.select(id)
     }
     func showInsights(for paper: PaperRecord) {
         guard finishEditorIfNeeded() else { return }

@@ -23,27 +23,32 @@ extension Workspace {
         catch { errorMessage = "Could not store the image. \(error.localizedDescription)"; return nil }
     }
     func noteImage(_ name: String) -> NSImage? {
-        guard let id = activeID, let data = imageStore?.data(name, paper: id) else { return nil }
-        return NSImage(data: data)
+        if let id = activeID, let data = imageStore?.data(name, paper: id) { return NSImage(data: data) }
+        for note in notes {
+            if let encoded = StudyCopy.embeddedImages(in: note.annotation)[name], encoded.count <= 28_000_000, let data = Data(base64Encoded: encoded) { return NSImage(data: data) }
+        }
+        return nil
     }
 
     // MARK: Editing notes in place
 
-    func updateNote(_ note: PaperNote, body: String, images: [String]) {
+    @discardableResult
+    func updateNote(_ note: PaperNote, body: String, images: [String]) -> Bool {
         let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, let page = note.annotation.page, let copy = PDFEditing.copy(note.annotation) else { return }
-        guard trimmed != note.body || images != note.images else { return }
+        guard !trimmed.isEmpty || !images.isEmpty else { return false }
+        guard let page = note.annotation.page, let copy = PDFEditing.copy(note.annotation) else { return false }
+        guard trimmed != note.body || images != note.images else { return true }
         copy.contents = trimmed
         copy.modificationDate = Date()
         copy.setValue(images.joined(separator: ","), forAnnotationKey: PDFNotes.imagesKey)
-        _ = replaceAnnotation(note.annotation, with: copy, on: page, name: "Edit Note")
+        return replaceAnnotation(note.annotation, with: copy, on: page, name: "Edit Note")
     }
 
     // MARK: Draft recovery
 
     func persistNoteDraft(_ draft: AnnotationDraft, text: String) {
         guard draft.original == nil, let id = activeID, let store = draftStore, let index = document?.index(for: draft.page), index != NSNotFound else { return }
-        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { store.clear(paper: id); return }
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (draft.kind != .text || pendingEditorImages.isEmpty) { store.clear(paper: id); return }
         store.save(NoteDraftRecord(page: index + 1, bounds: draft.bounds, isFreeText: draft.kind == .freeText,
                                    text: text, quote: draft.quote, images: pendingEditorImages), paper: id)
     }
@@ -61,55 +66,49 @@ extension Workspace {
 
     /// Inserts a blank ruled page after `number` (nil = end of the managed copy).
     func insertWritingPage(after number: Int?) {
-        guard finishEditorIfNeeded(), let document, let repository, let id = activeID else { return }
+        guard finishEditorIfNeeded(), let document else { return }
         let index = min(max(number ?? document.pageCount, 0), document.pageCount)
         let reference = document.page(at: max(0, min(index - 1, document.pageCount - 1)))?.bounds(for: .mediaBox).size ?? CGSize(width: 612, height: 792)
         guard let blank = WritingPages.blankPage(size: reference) else { errorMessage = "Could not create a writing page."; return }
         document.insert(blank, at: index)
-        do { try repository.saveDocument(document, for: id) }
+        do { try savePageStructure(document, first: index + 1, delta: 1, goTo: index + 1) }
         catch {
             document.removePage(at: index)
             errorMessage = "Could not add the writing page. Your previous PDF was kept. \(error.localizedDescription)"; return
         }
+        editHistory?.discardRedo()
         writingUndo.append(WritingPageOp(page: blank, index: index, depth: editHistory?.depth ?? 0)); writingRedo = []
-        shiftStars(from: index + 1, by: 1)
         afterPageStructureChange(goTo: index + 1)
     }
 
     func undoWritingPage() -> Bool {
-        guard let op = writingUndo.last, op.depth == (editHistory?.depth ?? 0), let document, let repository, let id = activeID,
+        guard let op = writingUndo.last, op.depth == (editHistory?.depth ?? 0), let document,
               document.index(for: op.page) == op.index else { return false }
         document.removePage(at: op.index)
-        do { try repository.saveDocument(document, for: id) }
+        do { try savePageStructure(document, first: op.index + 1, delta: -1, goTo: min(op.index, document.pageCount)) }
         catch { document.insert(op.page, at: op.index); errorMessage = "Could not undo. \(error.localizedDescription)"; return true }
         writingUndo.removeLast(); writingRedo.append(op)
-        shiftStars(from: op.index + 1, by: -1)
         afterPageStructureChange(goTo: min(op.index, document.pageCount))
         return true
     }
 
     func redoWritingPage() -> Bool {
-        guard let op = writingRedo.last, op.depth == (editHistory?.depth ?? 0), let document, let repository, let id = activeID,
+        guard let op = writingRedo.last, op.depth == (editHistory?.depth ?? 0), let document,
               op.index <= document.pageCount else { return false }
         document.insert(op.page, at: op.index)
-        do { try repository.saveDocument(document, for: id) }
+        do { try savePageStructure(document, first: op.index + 1, delta: 1, goTo: op.index + 1) }
         catch { document.removePage(at: op.index); errorMessage = "Could not redo. \(error.localizedDescription)"; return true }
         writingRedo.removeLast(); writingUndo.append(op)
-        shiftStars(from: op.index + 1, by: 1)
         afterPageStructureChange(goTo: op.index + 1)
         return true
     }
 
-    private func shiftStars(from first: Int, by delta: Int) {
-        updateActive { paper in
-            paper.starredPages = Set(paper.starredPages.compactMap { n in
-                if delta > 0 { return n >= first ? n + 1 : n }
-                if n == first { return nil }
-                return n > first ? n - 1 : n
-            })
-        }
-    }
     private func afterPageStructureChange(goTo number: Int) {
+        clearSkim()
+        selectionInsight = nil; askRequest = nil
+        aiStore?.cancelAll(); aiStore = nil
+        ensureAIStore()
+        reader.pageStructureDidChange()
         revision += 1
         pdfView?.layoutDocumentView()
         go(to: max(1, number))

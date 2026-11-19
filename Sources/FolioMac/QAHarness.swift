@@ -13,8 +13,6 @@ final class QAHarness {
         let dir = ProcessInfo.processInfo.environment["FOLIO_QA_DIR"] ?? "/tmp/folio-qa"
         return Notification.Name("dev.folio.mac.qa." + (dir as NSString).lastPathComponent)
     }
-    /// Posted (object: "notes" | "highlights") for the notes inspector, whose tab is view-local state.
-    static let rightTabName = Notification.Name("dev.folio.mac.qa.rightTab")
     private static var shared: QAHarness?
 
     /// Single additive entry point; does nothing when FOLIO_QA_DIR is unset.
@@ -30,6 +28,7 @@ final class QAHarness {
     private var seq = 0
     private var observer: NSObjectProtocol?
     private var originalAppearance: String??
+    private var originalProvider: String??
 
     private init(workspace: Workspace, directory: URL) {
         self.workspace = workspace; self.directory = directory
@@ -88,7 +87,7 @@ final class QAHarness {
             guard workspace.reading else { throw Failure("sample did not open") }
         case "library": workspace.navigate(to: .all)
         case "section":
-            let map: [String: LibrarySection] = ["all": .all, "opened": .opened, "notes": .notes, "starred": .starred, "insights": .insights]
+            let map: [String: LibrarySection] = ["all": .all, "opened": .opened, "notes": .notes, "starred": .starred, "insights": .insights, "conversations": .conversations]
             guard let section = map[try arg(0)] else { throw Failure("unknown library section") }
             workspace.navigate(to: section)
         case "read-inspected":
@@ -150,10 +149,6 @@ final class QAHarness {
             reader.setLayout(layout)
         case "left-sidebar": workspace.showDocumentNavigation = try flag(0)
         case "right-sidebar": workspace.inspector = try flag(0)
-        case "right-tab":
-            let tab = try arg(0)
-            guard tab == "notes" || tab == "highlights" else { throw Failure("notes|highlights") }
-            NotificationCenter.default.post(name: Self.rightTabName, object: tab)
         case "search":
             let text = args.joined(separator: " ")
             workspace.showFind = !text.isEmpty
@@ -168,6 +163,52 @@ final class QAHarness {
         case "window":
             guard let w = Double(try arg(0)), let h = Double(try arg(1)), let window = mainWindow else { throw Failure("window <w> <h>") }
             window.setContentSize(NSSize(width: w, height: h))
+        case "skim":
+            let enabled = try flag(0)
+            if workspace.skimEnabled != enabled { workspace.toggleSkim() }
+            for _ in 0..<400 where workspace.skimLoading { await settle(0.02) }
+            if let error = workspace.skimError { throw Failure(error) }
+            guard !workspace.skimLoading else { throw Failure("Skim still loading") }
+            let summary: [String: Any] = ["enabled": workspace.skimEnabled, "loading": workspace.skimLoading,
+                "marks": workspace.skimMarks.count,
+                "facets": Dictionary(uniqueKeysWithValues: SkimFacet.allCases.map { facet in
+                    (facet.label, workspace.skimMarks.filter { $0.facet == facet }.count)
+                })]
+            try JSONSerialization.data(withJSONObject: summary, options: [.prettyPrinted, .sortedKeys]).write(to: directory.appendingPathComponent("skim-state.json"))
+        case "selection-insights": workspace.chooseInsightsMode()
+        case "explain-selection": workspace.explainFinishedSelection() // Explicit: may send to the chosen provider.
+        case "provider":
+            let raw = try arg(0)
+            guard ["codex", "claude"].contains(raw) else { throw Failure("codex|claude") }
+            if originalProvider == nil { originalProvider = .some(UserDefaults.standard.string(forKey: "folio.assistant.provider")) }
+            UserDefaults.standard.set(raw == "codex" ? AssistantProvider.codex.rawValue : AssistantProvider.claude.rawValue, forKey: "folio.assistant.provider")
+        case "keychain-check":
+            // Only availability is recorded; no secret or provider request leaves this process.
+            let status = ClaudeKeyStore.read() == nil ? "unavailable" : "available"
+            try status.write(to: directory.appendingPathComponent("keychain-status.txt"), atomically: true, encoding: .utf8)
+        case "writing": workspace.showWriting = try flag(0)
+        case "writing-text":
+            guard let page = workspace.document?.page(at: workspace.page - 1) else { throw Failure("no page") }
+            workspace.pendingWriting = (page, args.joined(separator: " "))
+            guard workspace.flushWriting() else { throw Failure("writing save failed") }
+        case "return-passage": workspace.returnToPassage()
+        case "math-fixture":
+            guard let paper = workspace.activePaper, let root = workspace.repository?.root else { throw Failure("no paper") }
+            workspace.present(.assistant)
+            guard let model = workspace.activeAIStore?.assistant else { throw Failure("no assistant") }
+            model.load(root: root, record: paper)
+            guard var threads = model.threads, let fingerprint = model.paper?.fingerprint else { throw Failure("no threads") }
+            threads.newThread()
+            threads.append(question: "Show a typeset equation", answer: """
+            ## A mathematical example
+            The inline expression $x_i^2$ stays beside the text. See p. 2.
+
+            $$\\frac{1}{\\sqrt{2\\pi\\sigma^2}}\\exp\\left(-\\frac{(x-\\mu)^2}{2\\sigma^2}\\right)$$
+
+            $$\\begin{pmatrix}a & b \\\\ c & d\\end{pmatrix}\\begin{pmatrix}x\\\\y\\end{pmatrix}$$
+            """, titleSource: "Equation rendering fixture")
+            try AssistantThreadRepository(root: root, paperID: paper.id, fingerprint: fingerprint).save(threads)
+            model.threads = threads
         case "assistant": workspace.present(.assistant)
         case "reviews": workspace.present(.reviews)
         case "concept-map": workspace.present(.concepts)
@@ -200,6 +241,9 @@ final class QAHarness {
         case "undo": workspace.undo()
         case "redo": workspace.redo()
         case "quit":
+            if let original = originalProvider {
+                if let value = original { UserDefaults.standard.set(value, forKey: "folio.assistant.provider") } else { UserDefaults.standard.removeObject(forKey: "folio.assistant.provider") }
+            }
             if let original = originalAppearance {
                 if let value = original { UserDefaults.standard.set(value, forKey: "appearance") } else { UserDefaults.standard.removeObject(forKey: "appearance") }
             }

@@ -30,6 +30,22 @@ final class NotesSupportTests: XCTestCase {
         XCTAssertNil(store.load(paper: paper))
     }
 
+    func testAttachmentOnlyDraftRestoresButEmptyOrInvalidAttachmentDoesNot() {
+        let root = tempRoot(); defer { try? FileManager.default.removeItem(at: root) }
+        let store = NoteDraftStore(root: root), paper = UUID()
+        let name = UUID().uuidString + ".png"
+        let draft = NoteDraftRecord(page: 1, bounds: CGRect(x: 10, y: 20, width: 22, height: 22),
+                                    isFreeText: false, text: "", quote: "", images: [name])
+        store.save(draft, paper: paper)
+        XCTAssertEqual(store.load(paper: paper), draft)
+        for invalid in [NoteDraftRecord(page: 1, bounds: draft.bounds, isFreeText: false, text: " ", quote: ""),
+                        NoteDraftRecord(page: 1, bounds: draft.bounds, isFreeText: false, text: "", quote: "", images: ["../image.png"]),
+                        NoteDraftRecord(page: 1, bounds: draft.bounds, isFreeText: true, text: "", quote: "", images: [name])] {
+            store.save(invalid, paper: paper)
+            XCTAssertNil(store.load(paper: paper))
+        }
+    }
+
     func testBlankPageInsertsAndSerializes() throws {
         let page = try XCTUnwrap(WritingPages.blankPage(size: CGSize(width: 612, height: 792)))
         let document = PDFDocument()

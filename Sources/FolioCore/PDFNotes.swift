@@ -32,14 +32,13 @@ public enum PDFNotes {
     public static func grouped(_ notes: [PaperNote]) -> [(page: Int, notes: [PaperNote])] {
         Dictionary(grouping: notes, by: \.page).sorted { $0.key < $1.key }.map { ($0.key, $0.value) }
     }
-    /// Notes are written comments; bare highlights and other annotation kinds stay out.
+    /// Notes contain written comments or image attachments; bare marks stay out.
     public static func read(from document: PDFDocument) -> [PaperNote] {
         (0..<document.pageCount).flatMap { index -> [PaperNote] in
             guard let page = document.page(at: index) else { return [] }
             return page.annotations.enumerated().compactMap { offset, annotation in
-                guard annotation.type == "Text",
-                      let text = annotation.contents?.trimmingCharacters(in: .whitespacesAndNewlines),
-                      !text.isEmpty else { return nil }
+                let text = annotation.contents?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                guard annotation.type == "Text", !text.isEmpty || !images(of: annotation).isEmpty else { return nil }
                 return PaperNote(id: "\(index)-\(offset)", page: index + 1, body: text, annotation: annotation)
             }
         }

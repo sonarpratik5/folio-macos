@@ -1,0 +1,13 @@
+# Current handoff
+
+## Native reader parity — 2026-11-15
+
+- Request/status: implemented all seven requested paths in the native app: offline typeset inline/display LaTeX; expandable per-page writing below the PDF canvas with paginated study copies; global Conversations full-message search/exact-thread resume; previous-passage page/point returns; recursive folder browsing and descendant filter; portable note images; optional dark PDF dimming. Web and concurrent dirty work preserved.
+- Owners: MathAnswerView + bundled KaTeX 0.18.10/MIT WOFF2 assets; ConversationIndex/ConversationsView; StudyCopy/WritingBelowView; Workspace, PDFCanvas, sidebar/navigation/export callers. Writing commits through existing Undo history and retains failed input. Export augments detached copies; note image JSON payloads and visible image sheets round-trip without sidecars. Fonts trimmed, chat scans/filtering off-main, source duplicate lookup uses a set. Routes/authoritative docs updated.
+- Checks: final complete host-service `swift test` with local cache/config/security paths and `--disable-sandbox`: 142 tests (49 Mac + 93 core), zero failures, two live-provider skips. Seven focused tests passed after final export/tiny-page/folder refinements. `FOLIO_SWIFTPM_UNSANDBOXED=1 scripts/build-app.sh release` packaged optimized `.build/Folio.app`, ad-hoc signed/deep-strict verified. Context (6 routes/94 paths), whitespace and scoped review passed. Exact evidence: [reader parity](../TESTING.md#native-reader-parity--2026-11-15).
+- CUA: disposable synthetic library `/tmp/folio-parity-library-1115`; equations/matrices, citation+return, writing Expand/Save, study export, dark dimming (Light restored), global content search/exact resume visibly checked. PDFKit reopening of UI export asserted four pages/searchable continuation. No provider calls, real library/PDF edits, installed replacement, commit/push/publication.
+- Limits: writing is a native editor below the canvas, not an extension of every rendered page. Large recursive imports/image-heavy exports still have main-actor PDFKit work; pending writing buffer is not crash-durable. Arbitrary PDFs/third-party viewers/older OS/full accessibility remain unverified; final release did not get a fresh GUI pass. Next action follows the human request.
+
+## Concurrent Skim checkpoint preserved
+
+The adapted MiniLM Skim task completed its own explicit local overlays, filters/cancellation and synthetic verification. Its model/resources, changes and preview were preserved; reader parity does not claim ownership. Exact checkpoint/limits/preview paths remain in [the preserved handoff](handoff-before-reader-parity-2026-11-15.md) and [Skim evidence](../TESTING.md#adapted-minilm-skim-highlights--2026-11-15).

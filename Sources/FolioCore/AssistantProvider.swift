@@ -191,7 +191,7 @@ public struct AssistantClient {
     private let process: any AssistantProcessRunning
     private let transport: any AssistantTransport
     private let storedKey: @Sendable () -> String?
-    public init(environment: [String: String] = ProcessInfo.processInfo.environment, process: any AssistantProcessRunning = AssistantProcessRunner(), transport: any AssistantTransport = AssistantHTTPTransport(), storedKey: @escaping @Sendable () -> String? = { ClaudeKeyStore.read() }) {
+    public init(environment: [String: String] = ProcessInfo.processInfo.environment, process: any AssistantProcessRunning = AssistantProcessRunner(), transport: any AssistantTransport = AssistantHTTPTransport(), storedKey: @escaping @Sendable () -> String? = { ClaudeKeyStore.dotEnvKey() ?? ClaudeKeyStore.read() }) {
         self.environment = environment; self.process = process; self.transport = transport; self.storedKey = storedKey
     }
     /// `onText` receives progressive text only from providers that stream (Claude API). Codex CLI
@@ -231,7 +231,7 @@ public struct AssistantClient {
         }
         arguments += ["-"]
         var childEnvironment = environment
-        for key in ["ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL", "CODEX_THREAD_ID"] { childEnvironment.removeValue(forKey: key) }
+        for key in ["OPENREVIEW_TOKEN", "OPENREVIEW_USERNAME", "OPENREVIEW_PASSWORD", "ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "CODEX_API_KEY", "OPENAI_BASE_URL", "CODEX_THREAD_ID"] { childEnvironment.removeValue(forKey: key) }
         let candidates = [environment["FOLIO_CODEX_CLI"], NSHomeDirectory() + "/.local/bin/codex", "/opt/homebrew/bin/codex", "/usr/local/bin/codex", "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex", "/Applications/Codex.app/Contents/Resources/codex"] + (environment["PATH"] ?? "").split(separator: ":").map { String($0) + "/codex" }
         guard let executable = candidates.compactMap({ $0 }).first(where: { FileManager.default.isExecutableFile(atPath: $0) }) else { throw AssistantError.message("Install Codex CLI and run codex login. Set FOLIO_CODEX_CLI when it is not on PATH.") }
         let prompt = request.messages.map { "<turn role=\"\($0.role.rawValue)\">\n\(AssistantPaper.quoted($0.content))\n</turn>" }.joined(separator: "\n")
@@ -252,7 +252,7 @@ public struct AssistantClient {
     }
     private func claude(_ request: AssistantRequest, onText: (@Sendable (String) -> Void)? = nil) async throws -> String {
         let envKey = environment["ANTHROPIC_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let key = (envKey?.isEmpty == false ? envKey : storedKey()), !key.isEmpty, !key.hasPrefix("paste-") else { throw AssistantError.message("Claude’s key is missing or macOS has blocked access to it. Save the key in Folio Settings → AI assistant (⌘,), or choose Codex CLI. Folio will not open a Keychain password prompt.") }
+        guard let key = (envKey?.isEmpty == false ? envKey : storedKey()), !key.isEmpty, !key.hasPrefix("paste-") else { throw AssistantError.message("Claude’s key is missing or macOS has blocked access to it. Check ANTHROPIC_API_KEY in the native project’s .env or Folio’s launch environment, or the previously imported key, or choose Codex CLI. Folio will not open a Keychain password prompt.") }
         var turns: [[String: Any]] = request.messages.map { ["role": $0.role.rawValue, "content": $0.content] }
         var allText: [String] = []; var calls = 0; var sources: [String: String] = [:]
         let began = Date()
@@ -279,7 +279,7 @@ public struct AssistantClient {
             do { (data, status) = try await transport.send(urlRequest) } catch is CancellationError { throw CancellationError() } catch { if Task.isCancelled { throw CancellationError() }; throw AssistantError.message("Could not reach Anthropic. Check your internet connection.") }
             try Task.checkCancellation()
             guard (200..<300).contains(status) else {
-                let message = status == 401 ? "Anthropic rejected the Claude API key. Check it in Settings → AI assistant." : status == 403 ? "This API key cannot access the assistant model." : status == 404 ? "The Claude model is unavailable for this API key." : status == 429 ? "Claude is rate limited. Try again later." : "Claude could not complete this request. Try again."
+                let message = status == 401 ? "Anthropic rejected the Claude API key. Check the configured environment or choose Codex CLI." : status == 403 ? "This API key cannot access the assistant model." : status == 404 ? "The Claude model is unavailable for this API key." : status == 429 ? "Claude is rate limited. Try again later." : "Claude could not complete this request. Try again."
                 throw AssistantError.message(message)
             }
             guard data.count <= 4_000_000, let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let blocks = value["content"] as? [[String: Any]], let stop = value["stop_reason"] as? String else { throw AssistantError.message("Claude returned an unreadable response.") }
@@ -326,7 +326,7 @@ public struct AssistantClient {
         let status: Int; let lines: AsyncThrowingStream<String, Error>
         do { (status, lines) = try await transport.stream(urlRequest) } catch is CancellationError { throw CancellationError() } catch { if Task.isCancelled { throw CancellationError() }; throw AssistantError.message("Could not reach Anthropic. Check your internet connection.") }
         guard (200..<300).contains(status) else {
-            let message = status == 401 ? "Anthropic rejected the Claude API key. Check it in Settings → AI assistant." : status == 403 ? "This API key cannot access the assistant model." : status == 404 ? "The Claude model is unavailable for this API key." : status == 429 ? "Claude is rate limited. Try again later." : "Claude could not complete this request. Try again."
+            let message = status == 401 ? "Anthropic rejected the Claude API key. Check the configured environment or choose Codex CLI." : status == 403 ? "This API key cannot access the assistant model." : status == 404 ? "The Claude model is unavailable for this API key." : status == 429 ? "Claude is rate limited. Try again later." : "Claude could not complete this request. Try again."
             throw AssistantError.message(message)
         }
         var accumulator = AssistantStreamAccumulator(onText: onText, separator: separator)

@@ -28,7 +28,7 @@ final class AssistantTests: XCTestCase {
         XCTAssertEqual(first.fingerprint, second.fingerprint)
         XCTAssertTrue(first.sampled)
         XCTAssertLessThanOrEqual(first.passages.count, 800)
-        XCTAssertLessThanOrEqual(first.passages.reduce(0) { $0 + $1.text.count + 80 }, 120_000)
+        XCTAssertLessThanOrEqual(first.passages.reduce(0) { $0 + AssistantPaper.quoted($1.text).utf8.count + 80 }, 40_000)
         XCTAssertTrue(first.passages.contains { $0.page == 250 })
         XCTAssertNoThrow(try PaperLookup(pages: first.lookupPages, truncated: first.truncatedPages))
         XCTAssertEqual(first.chatContext, second.chatContext)
@@ -44,6 +44,70 @@ final class AssistantTests: XCTestCase {
         XCTAssertNotEqual(try AssistantPaper(title: "Boundary fixture", pages: ["a\u{0000}b", "c"]).fingerprint,
                           try AssistantPaper(title: "Boundary fixture", pages: ["a", "b\u{0000}c"]).fingerprint)
     }
+    func testSelectionWindowFindsDeepTextAndStaysBounded() throws {
+        let source = String(repeating: "Opening background. ", count: 200) + "This method uses adaptive routing to reduce cost. " + String(repeating: "Later evidence. ", count: 200)
+        let paper = try AssistantPaper(title: "Window fixture", pages: [source])
+        let window = try XCTUnwrap(paper.selectionContext("adaptive\nrouting", page: 1))
+        XCTAssertTrue(window.contains("This method uses adaptive routing to reduce cost."))
+        XCTAssertLessThanOrEqual(window.count, 1600)
+        XCTAssertFalse(window.hasPrefix("Opening background."))
+        XCTAssertNil(paper.selectionContext("missing term", page: 1))
+        XCTAssertNil(paper.selectionContext("adaptive routing", page: 2))
+        XCTAssertNil(paper.selectionContext("", page: 1))
+        XCTAssertNil(paper.selectionContext(String(repeating: "a", count: 1201), page: 1))
+    }
+    func testLongSelectionKeepsAdjacentEvidenceWithoutRepeatingSelection() throws {
+        let selection = String(repeating: "Selected technical evidence. ", count: 80)
+        let paper = try AssistantPaper(title: "Long selection", pages: ["PRECEDING definition. " + selection + " FOLLOWING limitation."])
+        let window = try XCTUnwrap(paper.selectionContext(selection, page: 1))
+        XCTAssertTrue(window.contains("PRECEDING definition"))
+        XCTAssertTrue(window.contains("FOLLOWING limitation"))
+        XCTAssertFalse(window.contains(selection))
+        XCTAssertLessThan(window.count, 1300)
+    }
+
+    func testHistoryRetainsNewestCompleteExchangeAndUnicodeWithinByteBudget() {
+        let longAnswer = "BEGIN " + String(repeating: "研究🙂", count: 8000) + " END (p. 7)"
+        let history = [AssistantTurn(role: .assistant, content: "Orphan"),
+                       AssistantTurn(role: .user, content: "Old question"), AssistantTurn(role: .assistant, content: "Old answer"),
+                       AssistantTurn(role: .user, content: "Recent question"), AssistantTurn(role: .assistant, content: longAnswer)]
+        let recent = AssistantService.compactHistory(history, budget: 12_000)
+        XCTAssertEqual(recent.count, 2)
+        XCTAssertEqual(recent.first?.content, "Recent question")
+        XCTAssertTrue(recent.last!.content.hasPrefix("BEGIN"))
+        XCTAssertTrue(recent.last!.content.hasSuffix("END (p. 7)"))
+        XCTAssertTrue(recent.last!.content.contains("omitted"))
+        XCTAssertFalse(recent.last!.content.contains("�"))
+        XCTAssertLessThan(recent.reduce(0) { $0 + $1.content.utf8.count + 100 }, 12_000)
+        XCTAssertTrue(AssistantService.compactHistory(history, budget: 10).isEmpty)
+        XCTAssertEqual(history.last?.content, longAnswer)
+    }
+
+    func testQuestionRetrievesDeepAppendixAndCurrentPageWithoutFullPDF() async throws {
+        let pages = ["Opening abstract.", "Local explanation on the current page.",
+                     String(repeating: "Unrelated background. ", count: 200) + "Zirconium ablation reduces energy by 17 percent."]
+        let paper = try AssistantPaper(title: "Retrieval fixture", pages: pages)
+        let transport = FakeTransport(responses: [(Data(#"{"content":[{"type":"text","text":"17 percent (p. 3)."}],"stop_reason":"end_turn"}"#.utf8), 200)])
+        let service = AssistantService(client: AssistantClient(environment: ["ANTHROPIC_API_KEY": "fixture"], transport: transport))
+        _ = try await service.answer(question: "How does zirconium ablation relate to this page?", paper: paper, history: [], provider: .claude, page: 2)
+        let requests = await transport.requests
+        let body = try XCTUnwrap(JSONSerialization.jsonObject(with: requests[0].httpBody!) as? [String: Any])
+        let messages = try XCTUnwrap(body["messages"] as? [[String: Any]])
+        let latest = try XCTUnwrap(messages.last?["content"] as? String)
+        XCTAssertTrue(latest.contains("Zirconium ablation reduces energy by 17 percent"))
+        XCTAssertTrue(latest.contains("PDF page 3"))
+        XCTAssertTrue(latest.contains("Local explanation on the current page"))
+        XCTAssertLessThan(latest.utf8.count, 4500)
+        XCTAssertNotNil(body["tools"])
+    }
+
+    func testStructuredContextIsByteBoundedForMultilingualPapers() throws {
+        let paper = try AssistantPaper(title: "Unicode", pages: (1...80).map { "Page \($0) " + String(repeating: "研究🙂 results evidence ", count: 300) })
+        XCTAssertLessThanOrEqual(paper.context.utf8.count, 40_000)
+        XCTAssertTrue(paper.passages.contains { $0.page == 80 })
+        XCTAssertTrue(paper.sampled)
+    }
+
     func testOverviewSourcesAlwaysComeFromExtractionAndRejectInventedIDs() throws {
         let paper = try paper()
         let overview = try AssistantOverview.parse(overviewJSON(), paper: paper, provider: .codex)
@@ -141,10 +205,16 @@ final class AssistantTests: XCTestCase {
         _ = try await AssistantClient(environment: ["ANTHROPIC_API_KEY": "env-key"], transport: env, storedKey: { "keychain-key" }).ask(request, provider: .claude)
         let envRequests = await env.requests
         XCTAssertEqual(envRequests.first?.value(forHTTPHeaderField: "x-api-key"), "env-key")
+        let blocked = FakeTransport(responses: [])
         do {
-            _ = try await AssistantClient(environment: [:], transport: ok(), storedKey: { nil }).ask(request, provider: .claude)
+            _ = try await AssistantClient(environment: [:], transport: blocked, storedKey: { nil }).ask(request, provider: .claude)
             XCTFail("Expected missing-key failure")
-        } catch { XCTAssertTrue(error.localizedDescription.contains("Settings")) }
+        } catch {
+            XCTAssertTrue(error.localizedDescription.contains("ANTHROPIC_API_KEY"))
+            XCTAssertTrue(error.localizedDescription.contains("will not open a Keychain password prompt"))
+        }
+        let blockedRequests = await blocked.requests
+        XCTAssertTrue(blockedRequests.isEmpty)
     }
     func testRunnerRejectsForbiddenToolsAndCancelsProcess() async throws {
         let root = try directory()

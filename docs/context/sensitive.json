@@ -1,0 +1,167 @@
+[
+  {
+    "id": "storage",
+    "title": "Managed copies and fail-closed persistence",
+    "files": [
+      "Sources/FolioCore/LibraryRepository.swift",
+      "Sources/FolioCore/PaperRecord.swift",
+      "Sources/FolioCore/ReadingPosition.swift"
+    ],
+    "contract": "Preserve imported source bytes and malformed stores. Commit validated metadata atomically; identical retries must persist after a failed write.",
+    "regression": "Invalid manifests can block the entire library; eager cache updates previously suppressed identical retries.",
+    "docs": [
+      "docs/ARCHITECTURE.md",
+      "docs/LOGIC_AUDIT.md"
+    ],
+    "checks": [
+      "swift test --filter LibraryRepositoryTests",
+      "swift test --filter ReadingPositionTests"
+    ],
+    "limits": "Synthetic failures do not establish power-loss or multi-writer safety.",
+    "reviewed": "2026-11-16: source/document inspection; runtime evidence remains in docs/TESTING.md, no fresh app tests for this harness change."
+  },
+  {
+    "id": "annotations",
+    "title": "Independent snapshots and draft recovery",
+    "files": [
+      "Sources/FolioCore/PDFEditing.swift",
+      "Sources/FolioCore/PDFNotes.swift",
+      "Sources/FolioMac/PDFCanvas.swift",
+      "Sources/FolioMac/AnnotationEditor.swift",
+      "Sources/FolioMac/Workspace.swift"
+    ],
+    "contract": "Only successful saves advance history. Independent snapshots must preserve groups, note attachments and genuine hidden flags. Failed draft saves retain input and block transitions.",
+    "regression": "Shared PDF dictionaries and renderer-only hidden flags previously dropped or hid restored annotations; detached retries can duplicate notes.",
+    "docs": [
+      "docs/ARCHITECTURE.md",
+      "docs/PDF_EDITING_VERIFICATION.md"
+    ],
+    "checks": [
+      "swift test --filter PDFEditingTests",
+      "swift test --filter WorkspaceEditingTests"
+    ],
+    "limits": "Also inspect disposable cropped/rotated PDFs and export/reopen; tests do not certify arbitrary PDF fidelity.",
+    "reviewed": "2026-11-16: source/document inspection; runtime evidence remains in docs/TESTING.md, no fresh app tests for this harness change."
+  },
+  {
+    "id": "structure",
+    "title": "PDF + manifest structural transaction",
+    "files": [
+      "Sources/FolioMac/Workspace+Notes.swift",
+      "Sources/FolioMac/Workspace.swift",
+      "Sources/FolioCore/LibraryRepository.swift",
+      "Sources/FolioCore/StudyCopy.swift"
+    ],
+    "contract": "Page count, current page and stars must agree after insert/Undo/Redo. Keep recovery journal until both PDF and manifest are consistent; replace stale AI state.",
+    "regression": "L1: appended pages could make the manifest invalid on relaunch. Rollback must remain retryable.",
+    "docs": [
+      "docs/LOGIC_AUDIT.md",
+      "docs/ARCHITECTURE.md"
+    ],
+    "checks": [
+      "swift test --filter LibraryRepositoryTests",
+      "swift test --filter WorkspaceEditingTests",
+      "swift test --filter ReaderParityTests"
+    ],
+    "limits": "Large journals cost memory/disk; disk exhaustion can block restoration. No full power-loss guarantee.",
+    "reviewed": "2026-11-16: source/document inspection; runtime evidence remains in docs/TESTING.md, no fresh app tests for this harness change."
+  },
+  {
+    "id": "session",
+    "title": "Document identity, flush gates and cache invalidation",
+    "files": [
+      "Sources/FolioMac/Workspace.swift",
+      "Sources/FolioMac/Workspace+Notes.swift",
+      "Sources/FolioMac/Workspace+Skim.swift",
+      "Sources/FolioMac/PDFCanvas.swift",
+      "Sources/FolioMac/ReaderState.swift",
+      "Sources/FolioMac/ReaderPanel.swift"
+    ],
+    "contract": "Flush pending edits before navigation/removal/export/quit; abort on failure. Obsolete callbacks/jobs cannot publish or save into another paper/revision. Reset caches on replacement and rollback.",
+    "regression": "L3: removal stranded writing buffers; rollback creates fresh annotation objects even without a revision increment.",
+    "docs": [
+      "docs/ARCHITECTURE.md",
+      "docs/LOGIC_AUDIT.md"
+    ],
+    "checks": [
+      "swift test --filter WorkspaceEditingTests",
+      "swift test --filter ReaderParityTests",
+      "swift test --filter SkimWorkspaceTests",
+      "swift test --filter PaperAssistantTests"
+    ],
+    "limits": "Main-actor PDFKit access is required. Below-page writing buffer is not crash-durable.",
+    "reviewed": "2026-11-16: source/document inspection; runtime evidence remains in docs/TESTING.md, no fresh app tests for this harness change."
+  },
+  {
+    "id": "provider",
+    "title": "Explicit, bounded, isolated AI requests",
+    "files": [
+      "Sources/FolioCore/AssistantService.swift",
+      "Sources/FolioCore/AssistantProvider.swift",
+      "Sources/FolioCore/AssistantModels.swift",
+      "Sources/FolioCore/AssistantThreads.swift",
+      "Sources/FolioCore/PaperLookup.swift",
+      "Sources/FolioMac/PaperAssistantView.swift",
+      "Sources/FolioMac/SelectionInsightView.swift",
+      "Sources/FolioMac/ReaderPanel.swift"
+    ],
+    "contract": "Only explicit user actions send bounded text. Preserve provider choice, cancellation, source validation, fingerprint checks and local history; treat all evidence as untrusted.",
+    "regression": "Broad subprocess access or stale completion can expose unrelated data or overwrite history. Saved history retention (L5) remains an open product decision.",
+    "docs": [
+      "docs/ARCHITECTURE.md",
+      "docs/AI_SETUP.md",
+      "docs/LOGIC_AUDIT.md"
+    ],
+    "checks": [
+      "swift test --filter AssistantTests",
+      "swift test --filter PaperAssistantTests",
+      "swift test --filter SelectionInsightTests"
+    ],
+    "limits": "Use injected providers. Live-provider tests are opt-in; no automatic network or credential use for a harness check.",
+    "reviewed": "2026-11-16: source/document inspection; runtime evidence remains in docs/TESTING.md, no fresh app tests for this harness change."
+  },
+  {
+    "id": "credentials",
+    "title": "Noninteractive credentials and isolated environment",
+    "files": [
+      "Sources/FolioCore/ClaudeKeyStore.swift",
+      "Sources/FolioCore/LocalDotEnv.swift",
+      "Sources/FolioCore/AssistantProvider.swift",
+      "Sources/FolioMac/FolioApp.swift",
+      "Sources/FolioMac/SettingsView.swift"
+    ],
+    "contract": "Keep process/query Keychain interaction disabled and provider child environments stripped. Resolve only authorized configuration; never print secrets or add key controls without a request.",
+    "regression": "Legacy Keychain ACL prompts required process-level suppression in addition to query policy; restricted test environments differ from host services.",
+    "docs": [
+      "docs/AI_SETUP.md",
+      "docs/ARCHITECTURE.md",
+      "docs/LOGIC_AUDIT.md"
+    ],
+    "checks": [
+      "swift test --filter CredentialSessionTests"
+    ],
+    "limits": "A policy assertion or build does not prove every live credential path is prompt-free.",
+    "reviewed": "2026-11-16: source/document inspection; runtime evidence remains in docs/TESTING.md, no fresh app tests for this harness change."
+  },
+  {
+    "id": "palette",
+    "title": "Settled visual requirements",
+    "files": [
+      "Sources/FolioMac/AnnotationPalette.swift",
+      "Sources/FolioMac/Theme.swift",
+      "Sources/FolioMac/ReaderControls.swift"
+    ],
+    "contract": "Keep Preview highlight colors yellow/green/blue/pink with opaque sRGB; preserve legacy saved-color recognition. Use the single adaptive Liquid Glass theme with accessibility fallbacks.",
+    "regression": "Extra compositing changes PDF highlight colors; reintroducing theme variants contradicts settled requirements.",
+    "docs": [
+      "docs/DECISIONS.md",
+      "docs/ARCHITECTURE.md"
+    ],
+    "checks": [
+      "swift test --filter WebStyleRenderTests",
+      "swift test --filter WorkspaceEditingTests"
+    ],
+    "limits": "Render tests require AppKit services; inspect light/dark, contrast and narrow layouts for visual changes.",
+    "reviewed": "2026-11-16: source/document inspection; runtime evidence remains in docs/TESTING.md, no fresh app tests for this harness change."
+  }
+]

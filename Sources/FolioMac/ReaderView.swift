@@ -8,10 +8,13 @@ struct ReaderView: View {
     @FocusState private var pageFocused: Bool
     init(workspace: Workspace) { self.workspace = workspace; reader = workspace.reader }
     @State private var pageInput = "1"
+    @State private var writingCollapsed = false
+    @State private var writingExpanded = false
 
     var body: some View {
         VStack(spacing: 0) {
-            tools.padding(.horizontal, 14).frame(height: 53).background(FolioTheme.strip)
+            tools.padding(.horizontal, 10).frame(height: 41).folioChrome(cornerRadius: 14)
+                .padding(.horizontal, 8).padding(.vertical, 6)
             FolioHairline()
             HStack(spacing: 0) {
             HSplitView {
@@ -20,53 +23,79 @@ struct ReaderView: View {
                         .overlay(alignment: .trailing) { FolioHairline(vertical: true) }
                         .frame(minWidth: 168, idealWidth: 208, maxWidth: 320)
                 }
-                PDFCanvas(workspace: workspace).background(FolioTheme.canvas).frame(minWidth: 360)
+                GeometryReader { geometry in
+                    VStack(spacing: 0) {
+                        PDFCanvas(workspace: workspace).background(FolioTheme.canvas).frame(minWidth: 360)
+                        if workspace.showWriting {
+                            WritingBelowView(workspace: workspace, collapsed: $writingCollapsed,
+                                             expanded: $writingExpanded, availableHeight: geometry.size.height)
+                                .id("\(workspace.activeID?.uuidString ?? "")-\(workspace.page)")
+                        }
+                    }
+                }.frame(minWidth: 360)
                 if workspace.inspector {
                     inspector
                         .overlay(alignment: .leading) { FolioHairline(vertical: true) }
-                        .frame(minWidth: 280, idealWidth: workspace.panel == .notes ? 295 : 340, maxWidth: 460)
+                        .frame(minWidth: workspace.panel == .ask ? 320 : 280,
+                               idealWidth: workspace.panel == .notes ? 295 : workspace.panel == .ask ? 380 : 340,
+                               maxWidth: 460)
                 }
             }
 
                 FolioHairline(vertical: true)
                 ReaderPanelRail(workspace: workspace)
             }
-            FolioHairline()
-            HStack {
-                Text(workspace.activePaper?.title ?? "").lineLimit(1)
-                Spacer()
-                icon("Previous page", "chevron.left") { workspace.go(to: workspace.page - 1) }.disabled(workspace.page <= 1)
-                TextField("Page", text: $pageInput).focused($pageFocused).frame(width: 35).textFieldStyle(.roundedBorder)
-                    .multilineTextAlignment(.center).onSubmit { workspace.go(to: Int(pageInput) ?? workspace.page); pageInput = String(workspace.page) }
-                    .accessibilityLabel("Page number")
-                Text("of \(workspace.document?.pageCount ?? 0)")
-                icon("Next page", "chevron.right") { workspace.go(to: workspace.page + 1) }
-                    .disabled(workspace.page >= (workspace.document?.pageCount ?? 0))
-                FolioHairline(vertical: true).frame(height: 12)
-                Label(workspace.saveFailed ? "Edit not saved" : "Saved on this Mac", systemImage: workspace.saveFailed ? "exclamationmark.circle" : "checkmark.circle")
-            }.font(.system(size: 12)).foregroundStyle(FolioTheme.muted).padding(.horizontal, 16).frame(height: 44)
-                .background(FolioTheme.footer)
         }
         .navigationTitle(workspace.activePaper?.title ?? "Reader")
 
-        .onChange(of: workspace.activeID, initial: true) { _, _ in workspace.ensureAIStore() }
+        .onChange(of: workspace.documentSessionID, initial: true) { _, _ in workspace.ensureAIStore() }
         .onChange(of: workspace.page, initial: true) { _, value in pageInput = String(value) }
         .onChange(of: reader.focusPageTick) { _, _ in pageFocused = true }
     }
 
     private var tools: some View {
-        ViewThatFits(in: .horizontal) {
-            toolContents
-            ScrollView(.horizontal, showsIndicators: false) { toolContents }
+        HStack(spacing: 8) {
+            ViewThatFits(in: .horizontal) {
+                toolContents
+                ScrollView(.horizontal, showsIndicators: false) { toolContents }
+            }
+            FolioHairline(vertical: true).frame(height: 19)
+            pageNavigation
+            if workspace.saveFailed {
+                Label("Edit not saved", systemImage: "exclamationmark.circle")
+                    .font(.caption).foregroundStyle(FolioTheme.warning).fixedSize()
+            }
         }
+    }
+
+    private var pageNavigation: some View {
+        HStack(spacing: 3) {
+            icon("Return to previous passage", "arrow.uturn.backward") { workspace.returnToPassage() }.disabled(workspace.passageHistory.isEmpty)
+            icon("Previous page", "chevron.left") { workspace.go(to: workspace.page - 1) }
+                .disabled(workspace.page <= 1)
+            TextField("Page", text: $pageInput).focused($pageFocused)
+                .frame(width: 35).textFieldStyle(.roundedBorder)
+                .multilineTextAlignment(.center)
+                .onSubmit {
+                    workspace.go(to: Int(pageInput) ?? workspace.page)
+                    pageInput = String(workspace.page)
+                }
+                .accessibilityLabel("Page number")
+                .help("Go to page (G)")
+            Text("of \(workspace.document?.pageCount ?? 0)")
+                .foregroundStyle(FolioTheme.muted)
+            icon("Next page", "chevron.right") { workspace.go(to: workspace.page + 1) }
+                .disabled(workspace.page >= (workspace.document?.pageCount ?? 0))
+        }
+        .font(.system(size: 12).monospacedDigit()).fixedSize()
     }
 
     private var toolContents: some View {
         HStack(spacing: 9) {
             icon("Back to library", "chevron.backward") { workspace.showLibrary() }
-            Button { workspace.present(.overview) } label: { Label("Insights", systemImage: "lightbulb") }
+            Button { workspace.present(.overview) } label: { Image(systemName: "rectangle.3.group") }
                 .buttonStyle(.plain).font(.system(size: 12, weight: .medium))
-                .help("Open this paper’s Insights page (⌥⌘G)").accessibilityLabel("Paper insights")
+                .help("Open this paper’s Insights page (⌥⌘G)").accessibilityLabel("Paper overview")
             icon("Show document navigation", "sidebar.left", active: workspace.showDocumentNavigation) { workspace.showDocumentNavigation.toggle() }
             FolioHairline(vertical: true).frame(height: 19)
             ForEach(PDFTool.allCases) { tool in
@@ -76,6 +105,38 @@ struct ReaderView: View {
                     .help("\(tool.label): \(tool.hint)").accessibilityLabel(tool.label)
                     .accessibilityAddTraits(workspace.tool == tool ? .isSelected : [])
             }
+            Button { workspace.chooseInsightsMode() } label: { Label("Insights", systemImage: "lightbulb") }
+                .buttonStyle(.plain).font(.system(size: 12, weight: .medium))
+                .padding(.horizontal, 8).frame(height: 30)
+                .background(workspace.insightsMode ? FolioTheme.iconActiveBg : .clear, in: RoundedRectangle(cornerRadius: 5))
+                .foregroundStyle(workspace.insightsMode ? FolioTheme.iconActiveInk : FolioTheme.iconIdle)
+                .help("Insights on selection (I). Select text to explain it; V returns to plain selection.")
+                .accessibilityLabel("Insights on selection").accessibilityAddTraits(workspace.insightsMode ? .isSelected : [])
+            Menu {
+                Button(workspace.skimEnabled ? "Turn Skim off" : "Turn Skim on", action: workspace.toggleSkim)
+                if workspace.skimEnabled {
+                    Divider()
+                    ForEach(SkimFacet.allCases) { facet in
+                        Toggle(facet.label, isOn: Binding(get: { workspace.skimFacets.contains(facet) }, set: { _ in workspace.toggleSkimFacet(facet) }))
+                    }
+                    if workspace.skimLoading { Text("Classifying on this Mac…") }
+                    else if let error = workspace.skimError {
+                        Text(error)
+                        Button("Retry") { workspace.clearSkim(); workspace.toggleSkim() }
+                    } else {
+                        ForEach(SkimFacet.allCases) { facet in
+                            Text("\(facet.label): \(workspace.skimMarks.filter { $0.facet == facet }.count)")
+                        }
+                        if workspace.skimMarks.isEmpty { Text("No confident passages found. Scanned PDFs need a text layer.") }
+                    }
+                }
+            } label: {
+                Label(workspace.skimLoading ? "Skimming…" : workspace.skimError != nil ? "Skim failed" : "Skim", systemImage: "highlighter")
+                    .foregroundStyle(workspace.skimEnabled ? FolioTheme.iconActiveInk : FolioTheme.iconIdle)
+            }
+            .menuStyle(.borderlessButton).fixedSize()
+            .help("Local Skim highlights: Goal (orange), Method (blue), Result (green). Click to enable, filter or turn off.")
+            .accessibilityLabel("Skim highlights")
             if workspace.tool == .highlight || workspace.tool == .underline || workspace.tool == .note || workspace.tool == .text || (workspace.selectedAnnotation != nil && workspace.selectedAnnotation?.type != "Stamp") {
                 colorSwatches
             }
@@ -107,9 +168,11 @@ struct ReaderView: View {
                 Divider()
                 Button("Import PDF…", action: workspace.choosePDF)
                     .disabled(workspace.repository == nil)
+                Button(workspace.showWriting ? "Close Page Notes" : "Write Below This Page", action: workspace.toggleWriting)
+                Button("Export Study Copy…") { workspace.exportCopy(study: true) }
                 Button("Add Writing Page After This Page") { workspace.insertWritingPage(after: workspace.page) }
                 Button("Add Writing Page at End") { workspace.insertWritingPage(after: nil) }
-                Button("Export PDF Copy…", action: workspace.exportCopy)
+                Button("Export PDF Copy…", action: { workspace.exportCopy() })
                 Button("Paste image") { NSApp.sendAction(#selector(ToolPDFView.paste(_:)), to: workspace.pdfView, from: nil) }
                     .disabled(!NSPasteboard.general.canReadObject(forClasses: [NSImage.self], options: nil))
             } label: { Image(systemName: "ellipsis").font(.system(size: 14, weight: .medium)).foregroundStyle(FolioTheme.iconIdle) }
@@ -122,9 +185,10 @@ struct ReaderView: View {
     @ViewBuilder private var inspector: some View {
         if workspace.panel != .notes, let paper = workspace.activePaper, let store = workspace.activeAIStore {
             switch workspace.panel {
-            case .ask: AskPanel(workspace: workspace, model: store.assistant, paper: paper).id(paper.id)
-            case .reviews: ReviewsPanel(workspace: workspace, model: store.reviews, paper: paper).id(paper.id)
-            case .map: ConceptMapPanel(workspace: workspace, model: store.concepts, paper: paper).id(paper.id)
+            case .insight: NotesInspector(workspace: workspace)
+            case .ask: AskPanel(workspace: workspace, model: store.assistant, paper: paper).id(ObjectIdentifier(store))
+            case .reviews: ReviewsPanel(workspace: workspace, model: store.reviews, paper: paper).id(ObjectIdentifier(store))
+            case .map: ConceptMapPanel(workspace: workspace, model: store.concepts, paper: paper).id(ObjectIdentifier(store))
             case .notes: NotesInspector(workspace: workspace)
             }
         } else { NotesInspector(workspace: workspace) }
@@ -141,7 +205,7 @@ struct ReaderView: View {
             ForEach(AnnotationPalette.names, id: \.self) { color in
                 let chosen = workspace.markColor == color
                 Button { workspace.recolor(color) } label: {
-                    Circle().fill(Color(AnnotationPalette.web(color))).frame(width: 15, height: 15)
+                    Circle().fill(Color(AnnotationPalette.swatch(color))).frame(width: 15, height: 15)
                         .overlay(Circle().strokeBorder(Color(red: 0.545, green: 0.604, blue: 0.498), lineWidth: 1).frame(width: 21, height: 21).opacity(chosen ? 1 : 0))
                         .frame(width: 24, height: 26).contentShape(Rectangle())
                 }.buttonStyle(.plain)

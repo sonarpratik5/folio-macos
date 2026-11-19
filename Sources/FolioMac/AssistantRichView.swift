@@ -2,13 +2,21 @@ import SwiftUI
 import AppKit
 import FolioCore
 
-/// Renders an assistant answer: Markdown blocks, code, LaTeX (as readable Unicode) and clickable page citations.
+/// Native Markdown for plain answers; offline typesetting for answers containing inline/display LaTeX.
 struct AssistantRichView: View {
     let text: String
     var pageCount: Int? = nil
     var onPage: (Int) -> Void = { _ in }
 
     var body: some View {
+        Group {
+            if text.contains("$") || text.contains("\\[") || text.contains("\\(") {
+                MathAnswerView(text: text, pageCount: pageCount, onPage: onPage)
+            } else { nativeBody }
+        }
+    }
+
+    private var nativeBody: some View {
         VStack(alignment: .leading, spacing: 10) {
             ForEach(Array(AssistantRichText.blocks(text).enumerated()), id: \.offset) { _, block in blockView(block) }
         }

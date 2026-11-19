@@ -1,6 +1,7 @@
 import SwiftUI
 import FolioCore
 import PDFKit
+import AppKit
 
 private struct LibraryNoteEntry: Identifiable {
     let paper: PaperRecord
@@ -9,6 +10,15 @@ private struct LibraryNoteEntry: Identifiable {
 }
 
 struct LibraryView: View {
+    private struct NoteScanKey: Equatable {
+        let papers: [UUID]
+        let session: UUID
+        let revision: Int
+    }
+    private var noteScanKey: NoteScanKey {
+        NoteScanKey(papers: workspace.papers.map(\.id), session: workspace.documentSessionID,
+                    revision: workspace.revision)
+    }
     @ObservedObject var workspace: Workspace
     var onAsk: ((PaperRecord) -> Void)? = nil
     @AppStorage("libraryLayout") private var layout = "list"
@@ -40,20 +50,22 @@ struct LibraryView: View {
 
     private var visible: [PaperRecord] {
         let sectionOrder: LibrarySortOrder = workspace.section == .opened ? .recentlyOpened : sortOrder
-        return LibraryOrganizer.apply(
-            workspace.papers.filter { workspace.section != .starred || !$0.starredPages.isEmpty },
+        let result = LibraryOrganizer.apply(
+            workspace.libraryPapers.filter { workspace.section != .starred || !$0.starredPages.isEmpty },
             query: workspace.libraryQuery, filter: workspace.section == .all ? filter : .all, order: sectionOrder,
             noteCounts: notesByPaper.mapValues(\.count),
             noteText: notesByPaper.mapValues { $0.map(\.body).joined(separator: "\n") })
+        return workspace.section == .opened ? result.sorted { $0.lastVisit! > $1.lastVisit! } : result
     }
 
     private var sectionTitle: String {
         switch workspace.section {
-        case .all: "Library"
-        case .opened: "Recently opened"
-        case .notes: "Notes from your reading"
+        case .all: workspace.selectedFolder.map { URL(fileURLWithPath: $0).lastPathComponent } ?? "All PDFs"
+        case .opened: "Recent"
+        case .notes: "Notes"
         case .starred: "Starred pages"
         case .insights: "Insights"
+        case .conversations: "Conversations"
         }
     }
 
@@ -62,22 +74,21 @@ struct LibraryView: View {
             VStack(alignment: .leading, spacing: 22) {
                 header
 
-                if workspace.section == .all, workspace.libraryQuery.isEmpty, let paper = workspace.papers.max(by: { $0.lastOpened < $1.lastOpened }) {
+                if workspace.section == .all, workspace.libraryQuery.isEmpty, let paper = workspace.recentPapers.first(where: { workspace.selectedFolder == nil || $0.folderPath == workspace.selectedFolder }) {
                     continueReading(paper)
                 }
 
                 if !workspace.papers.isEmpty { controlsRow }
 
-                if workspace.papers.isEmpty {
+                if workspace.papers.isEmpty && workspace.selectedFolder == nil && workspace.section == .all {
                     emptyLibrary
                 } else if workspace.section == .notes {
                     notesSection
                 } else if workspace.section == .starred {
                     starredSection
                 } else if visible.isEmpty {
-                    EmptyState(symbol: workspace.section.symbol, title: "No matching papers",
-                               detail: workspace.libraryQuery.isEmpty ? "Import a PDF to begin building your library." : "Try another title or a phrase from one of your notes.")
-                        .padding(.vertical, 48)
+                    emptyResults(symbol: workspace.section.symbol, title: "No matching papers",
+                                 detail: hasLibraryConstraints ? "Try another title, a phrase from your notes, or clear your filters." : (workspace.section == .opened ? "PDFs you open in the reader appear here." : "Open a folder or import a PDF."))
                 } else if layout == "grid" {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: 220, maximum: 330))], spacing: 18) {
                         ForEach(visible) { paper in paperCard(paper) }
@@ -93,8 +104,8 @@ struct LibraryView: View {
             .frame(maxWidth: .infinity, alignment: .top)
         }
         .scrollIndicators(.visible)
-        .navigationTitle("Library")
-        .task(id: workspace.papers) { loadNotes() }
+        .navigationTitle(sectionTitle)
+        .task(id: noteScanKey) { loadNotes() }
         .sheet(item: $renaming) { paper in
             RenamePaperSheet(paper: paper) { workspace.renamePaper(paper, to: $0) }
         }
@@ -114,14 +125,16 @@ struct LibraryView: View {
     private var header: some View {
         HStack(alignment: .bottom, spacing: FolioSpace.l) {
             VStack(alignment: .leading, spacing: 6) {
-                FolioTheme.overline(Date.now.formatted(.dateTime.weekday(.wide).month(.wide).day()))
-                Text(sectionTitle).font(FolioTheme.heading(38)).accessibilityAddTraits(.isHeader)
-                Text(sectionSubtitle).font(.system(size: 13)).foregroundStyle(.secondary)
+                Text(sectionTitle).font(FolioTheme.heading(32)).accessibilityAddTraits(.isHeader)
+                if let path = workspace.selectedFolder, workspace.section == .all {
+                    Text(path).font(.system(size: 11)).foregroundStyle(FolioTheme.muted).lineLimit(1).truncationMode(.middle).help(path)
+                    Button("Refresh folder") { workspace.openFolder(URL(fileURLWithPath: path)) }.buttonStyle(.borderless)
+                }
             }
             Spacer(minLength: 12)
             VStack(alignment: .trailing, spacing: 10) {
                 HStack(spacing: 6) {
-                    metric(workspace.papers.count, "paper", "papers")
+                    metric(workspace.libraryPapers.count, "paper", "papers")
                     metric(annotationTotal, "annotation", "annotations")
                     metric(starredPages.count, "saved page", "saved pages")
                 }
@@ -144,6 +157,24 @@ struct LibraryView: View {
         workspace.section == .notes ? "Search notes and paper titles" : "Search titles and note text"
     }
 
+    private var hasLibraryConstraints: Bool {
+        !workspace.libraryQuery.isEmpty || (workspace.section == .all && filter != .all)
+    }
+
+    private func emptyResults(symbol: String, title: String, detail: String) -> some View {
+        VStack(spacing: 12) {
+            EmptyState(symbol: symbol, title: title, detail: detail)
+            if hasLibraryConstraints {
+                Button(workspace.section == .all && filter != .all ? "Clear search and filters" : "Clear search") {
+                    workspace.libraryQuery = ""
+                    if workspace.section == .all { filter = .all }
+                }
+                .buttonStyle(.bordered)
+            }
+        }
+        .frame(maxWidth: .infinity).padding(.vertical, 48)
+    }
+
     private var annotationTotal: Int { annotationCounts.values.reduce(0, +) }
 
     private func metric(_ count: Int, _ singular: String, _ plural: String) -> some View {
@@ -151,9 +182,7 @@ struct LibraryView: View {
             Text("\(count)").font(.system(size: 12, weight: .semibold, design: .rounded)).foregroundStyle(FolioTheme.ink)
             Text(count == 1 ? singular : plural).font(.system(size: 11)).foregroundStyle(FolioTheme.muted)
         }
-        .padding(.horizontal, 9).padding(.vertical, 5)
-        .background(FolioTheme.badge, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(FolioTheme.line.opacity(0.6)))
+        .padding(.horizontal, 2).padding(.vertical, 3)
     }
 
     /// One aligned row: filter chips (Library only), count, then sort and layout controls.
@@ -195,6 +224,10 @@ struct LibraryView: View {
         Button { workspace.open(paper) } label: { Label("Open", systemImage: "book.pages") }
         if let onAsk { Button { onAsk(paper) } label: { Label("Ask Folio…", systemImage: "sparkles") } }
         Button { details = paper } label: { Label("Details", systemImage: "info.circle") }
+        Button {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(paper.title, forType: .string)
+        } label: { Label("Copy Title", systemImage: "doc.on.doc") }
         Divider()
         Button { renaming = paper } label: { Label("Rename…", systemImage: "pencil") }
         Button { workspace.revealInFinder(paper) } label: { Label("Show Managed Copy in Finder", systemImage: "folder") }
@@ -211,19 +244,9 @@ struct LibraryView: View {
 
     private var sectionCount: Int {
         switch workspace.section {
-        case .all, .opened, .insights: visible.count
+        case .all, .opened, .insights, .conversations: visible.count
         case .notes: filteredNotes.count
         case .starred: filteredStars.count
-        }
-    }
-
-    private var sectionSubtitle: String {
-        switch workspace.section {
-        case .all: "A quiet place for the questions worth following."
-        case .opened: "Pick up where your last reading session left off."
-        case .notes: "Written comments you left beside the source."
-        case .starred: "Pages you marked for another look."
-        case .insights: "Understand a paper before reading."
         }
     }
 
@@ -239,13 +262,13 @@ struct LibraryView: View {
 
     private var emptyLibrary: some View {
         VStack(spacing: 20) {
-            EmptyState(symbol: "book.pages", title: "A focused space for reading",
-                       detail: "Import a PDF, or drop one anywhere in this window, to start reading, mark a passage and keep notes beside the text.")
+            EmptyState(symbol: "book.pages", title: "No papers yet",
+                       detail: "Open a folder to browse its PDFs, or import a PDF.")
                 .frame(maxHeight: 220)
             HStack(spacing: 10) {
-                Button(action: workspace.choosePDF) { Label("Import a PDF…", systemImage: "plus") }.buttonStyle(FolioPrimaryButtonStyle())
+                Button(action: workspace.chooseFolder) { Label("Open folder…", systemImage: "folder") }.buttonStyle(FolioPrimaryButtonStyle())
+                Button(action: workspace.choosePDF) { Label("Import PDF…", systemImage: "plus") }.buttonStyle(.bordered)
                 Button { workspace.showArxivImport = true } label: { Label("Import from arXiv…", systemImage: "arrow.down.doc") }.buttonStyle(.bordered)
-                Button(action: workspace.sample) { Label("Explore the sample", systemImage: "book.closed") }.buttonStyle(.bordered)
             }.controlSize(.large).disabled(workspace.repository == nil)
         }
         .frame(maxWidth: .infinity).padding(.vertical, 40)
@@ -284,12 +307,12 @@ struct LibraryView: View {
     private var paperList: some View {
         VStack(spacing: 0) {
             HStack(spacing: 14) {
-                Text("DOCUMENT").frame(maxWidth: .infinity, alignment: .leading)
-                Text("LAST POSITION").frame(width: 115, alignment: .leading)
-                Text("SAVED").frame(width: 68, alignment: .center)
+                Text("Document").frame(maxWidth: .infinity, alignment: .leading)
+                Text("Last position").frame(width: 115, alignment: .leading)
+                Text("Saved").frame(width: 68, alignment: .center)
                 Text("").frame(width: 76)
             }
-            .font(.system(size: 9, weight: .bold)).tracking(1.05).foregroundStyle(.tertiary)
+            .font(.system(size: 12, weight: .medium)).foregroundStyle(FolioTheme.muted)
             .padding(.horizontal, 18).padding(.vertical, 13)
             ForEach(Array(visible.enumerated()), id: \.element.id) { index, paper in
                 if index > 0 { Divider().padding(.leading, 18) }
@@ -299,27 +322,32 @@ struct LibraryView: View {
         .folioGlass(cornerRadius: FolioRadius.panel - 2)
     }
 
+    private func visit(_ paper: PaperRecord) {
+        if workspace.section == .opened { workspace.open(paper) }
+        else { workspace.showInsights(for: paper) }
+    }
+
     private func paperRow(_ paper: PaperRecord) -> some View {
         HStack(spacing: 14) {
-            Button { workspace.open(paper) } label: {
+            Button { visit(paper) } label: {
                 HStack(spacing: 13) {
                     ZStack {
                         RoundedRectangle(cornerRadius: 5).fill(FolioTheme.badge)
                         Image(systemName: "doc.text").font(.system(size: 17, weight: .light)).foregroundStyle(FolioTheme.accent)
                     }.frame(width: 42, height: 48)
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(paper.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                        Text(paper.title).font(.system(size: 14, weight: .medium)).lineLimit(1)
                         Text(paper.author.map { "\($0)  ·  \(paper.pageCount) pages" } ?? "PDF  ·  \(paper.pageCount) pages")
-                            .font(.system(size: 10, weight: .medium)).tracking(0.4).foregroundStyle(.secondary)
+                            .font(.system(size: 12)).foregroundStyle(.secondary)
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
             }.buttonStyle(.plain).help("Open \(paper.title)")
             VStack(alignment: .leading, spacing: 3) {
                 Text("Page \(paper.currentPage)").font(.system(size: 11, weight: .medium))
-                Text(paper.lastOpened.formatted(.relative(presentation: .named))).font(.system(size: 10)).foregroundStyle(.secondary)
+                Text(paper.lastOpened.formatted(.relative(presentation: .named))).font(.system(size: 12)).foregroundStyle(FolioTheme.muted)
             }.frame(width: 115, alignment: .leading)
             Text("\(paper.starredPages.count)").font(.system(size: 11, weight: .medium, design: .rounded))
-                .foregroundStyle(paper.starredPages.isEmpty ? FolioTheme.ink.opacity(0.42) : FolioTheme.accent)
+                .foregroundStyle(paper.starredPages.isEmpty ? FolioTheme.muted : FolioTheme.accent)
                 .frame(width: 68, alignment: .center)
             HStack(spacing: 2) {
                 Button { workspace.showInsights(for: paper) } label: { Image(systemName: "lightbulb") }
@@ -336,23 +364,25 @@ struct LibraryView: View {
     private func paperCard(_ paper: PaperRecord) -> some View {
         VStack(alignment: .leading, spacing: 15) {
             ZStack(alignment: .topTrailing) {
-                PaperThumbnail(url: workspace.repository!.documentURL(for: paper.id))
-                    .frame(maxWidth: .infinity).frame(height: 150).background(FolioTheme.canvas.opacity(0.62))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                Button { visit(paper) } label: {
+                    PaperThumbnail(url: workspace.repository!.documentURL(for: paper.id))
+                        .frame(maxWidth: .infinity).frame(height: 150).background(FolioTheme.canvas.opacity(0.62))
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
+                }.buttonStyle(.plain).accessibilityLabel("Open \(paper.title)")
                 Text("PDF  ·  \(paper.pageCount) PAGES")
                     .font(.system(size: 8, weight: .bold)).tracking(0.8)
                     .padding(.horizontal, 8).padding(.vertical, 6).background(FolioTheme.card, in: Capsule()).overlay(Capsule().strokeBorder(FolioTheme.line)).padding(10)
             }
             VStack(alignment: .leading, spacing: 7) {
-                Button { details = paper } label: {
+                Button { visit(paper) } label: {
                     Text(paper.title).font(FolioTheme.heading(19)).lineLimit(2).frame(maxWidth: .infinity, minHeight: 47, alignment: .topLeading)
                         .multilineTextAlignment(.leading)
-                }.buttonStyle(.plain).help("Paper details")
+                }.buttonStyle(.plain).help("Insights for \(paper.title)")
                 HStack {
                     Label("Page \(paper.currentPage)", systemImage: "book.pages")
                     Spacer()
                     if !paper.starredPages.isEmpty { Label("\(paper.starredPages.count)", systemImage: "star.fill").foregroundStyle(FolioTheme.accent) }
-                }.font(.system(size: 10)).foregroundStyle(.secondary)
+                }.font(.system(size: 12)).foregroundStyle(FolioTheme.muted)
                 Divider().padding(.top, 2)
                 HStack {
                     Button { workspace.open(paper) } label: { Label("Resume", systemImage: "arrow.up.right") }
@@ -371,8 +401,9 @@ struct LibraryView: View {
     private var starredSection: some View {
         Group {
             if filteredStars.isEmpty {
-                EmptyState(symbol: "star", title: "Save a page for later", detail: "Star a page in the reader and it will appear here with a direct link back to the source.")
-                    .padding(.vertical, 48).folioGlass(cornerRadius: FolioRadius.panel + 2)
+                emptyResults(symbol: "star", title: hasLibraryConstraints ? "No matching saved pages" : "Save a page for later",
+                             detail: hasLibraryConstraints ? "Try another paper title or page number." : "Star a page in the reader and it will appear here with a direct link back to the source.")
+                    .folioGlass(cornerRadius: FolioRadius.panel + 2)
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(filteredStars.enumerated()), id: \.offset) { index, item in
@@ -383,7 +414,7 @@ struct LibraryView: View {
                                     .background(FolioTheme.accent.opacity(0.09), in: RoundedRectangle(cornerRadius: 6))
                                 VStack(alignment: .leading, spacing: 5) {
                                     Text(item.paper.title).font(.system(size: 13, weight: .medium)).lineLimit(1)
-                                    Text("Page \(item.page) of \(item.paper.pageCount)").font(.system(size: 10)).foregroundStyle(.secondary)
+                                    Text("Page \(item.page) of \(item.paper.pageCount)").font(.system(size: 12)).foregroundStyle(FolioTheme.muted)
                                 }
                                 Spacer()
                                 Image(systemName: "arrow.up.right").font(.system(size: 12, weight: .medium)).foregroundStyle(FolioTheme.accent)
@@ -398,8 +429,9 @@ struct LibraryView: View {
     private var notesSection: some View {
         Group {
             if filteredNotes.isEmpty {
-                EmptyState(symbol: "note.text", title: "Your notes will gather here", detail: "Search can find text inside a written PDF comment as well as its paper title.")
-                    .padding(.vertical, 48).folioGlass(cornerRadius: FolioRadius.panel + 2)
+                emptyResults(symbol: "note.text", title: hasLibraryConstraints ? "No matching notes" : "Your notes will gather here",
+                             detail: "Search can find text inside a written PDF comment as well as its paper title.")
+                    .folioGlass(cornerRadius: FolioRadius.panel + 2)
             } else {
                 VStack(spacing: 0) {
                     ForEach(Array(filteredNotes.enumerated()), id: \.element.id) { index, item in
@@ -495,7 +527,7 @@ private struct PaperQuickLook: View {
     }
 }
 
-private struct PaperThumbnail: View {
+struct PaperThumbnail: View {
     let url: URL
     var padding: CGFloat = 15
     @State private var image: NSImage?

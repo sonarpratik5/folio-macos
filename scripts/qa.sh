@@ -10,10 +10,13 @@
 #   mark-line <highlight|underline> <page> <lineIndex>      add-text <page> <x> <y> <text...> | commit-text
 #   select-annotation <page> <index>
 #   rotate <left|right>   zoom <in|out|fit-width|fit-page|actual>   page <n>   layout <single|continuous|two|two-continuous>
-#   left-sidebar <on|off>  right-sidebar <on|off>  right-tab <notes|highlights>
+#   left-sidebar <on|off>  right-sidebar <on|off>
 #   search <text>  (no text clears)   appearance <light|dark|system>   window <w> <h>
-#   section <all|opened|notes|starred|insights> | read-inspected | library-layout <list|grid>
+#   writing <on|off> | writing-text <text...> | return-passage | math-fixture (local synthetic answer, no provider)
+#   section <all|opened|notes|starred|insights|conversations> | read-inspected | library-layout <list|grid>
 #   assistant | reviews | concept-map (reader panel) | overview (Insights page)   select-line <page> <line>   ask-selection
+#   selection-insights | explain-selection (explicit provider request) | provider <codex|claude> | keychain-check
+#   skim <on|off>                    local adapted MiniLM; writes skim-state.json, never calls a provider
 #   settings-shot <name> <codex|claude>   close-sheet   (AI commands never send a provider request)
 set -euo pipefail
 cd "$(dirname "$0")/.."

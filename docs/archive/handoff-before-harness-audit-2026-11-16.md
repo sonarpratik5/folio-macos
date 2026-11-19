@@ -1,0 +1,11 @@
+# Current handoff
+
+## Native correctness/performance audit — 2026-11-16
+
+- Request/status: identify/check macOS gaps, implement confirmed corrections, assess optimizations. Completed bounded source/regression audit; five corrections. Existing dirty native/web work preserved; no commit/install/publication.
+- Changed: LibraryRepository/Workspace export rejects resolved managed paths (including symlinked parents of new filenames); ReaderState captures identity-bound view snapshots, flushes on transitions/quit, retries failed snapshots and preserves custom zoom across repeated fit. LibraryView scan key uses IDs/session/revision instead of metadata. FolioApp resolves duplicate Option-Command-G: overview now Shift-Option-Command-G.
+- Tests: LibraryRepositoryTests + ReaderRenderTests cover symlink paths, zoom, switch-before-debounce and retry after failed settings write. Focused host run 29 pass; full host suite 183 cases (181 passed, 2 live-provider skips), zero failures. Logs /tmp/folio-audit-focused-host.log and /tmp/folio-audit-all-host.log. Restricted AppKit run crashed; initial new export test caught/fixed nonexistent-output link resolution.
+- Release: FOLIO_SWIFTPM_UNSANDBOXED=1 scripts/build-app.sh release passed with deep/strict signing, /tmp/folio-audit-release.log; .build/Folio.app built. Installed/running app unchanged. Full tests preceded the final one-line shortcut correction; release build includes it.
+- Docs: LOGIC_AUDIT owns findings/prioritized checks; STATE/ARCHITECTURE/PORTING/QUALITY/DECISIONS/TESTING updated. Previous active checkpoint preserved in [archive](handoff-before-native-audit-2026-11-16.md), including its earlier checkpoint link. Context routes include the archive.
+- Limits: no fresh physical-keyboard/save-panel GUI pass or measured large-PDF speedup. Full note scans, imports/exports and PDFKit work remain main-thread; failed view snapshots are only session-durable. Retention (40 chats/96 turns), Unread semantics, arbitrary-PDF fidelity, accessibility, live integrations and multi-instance coordination remain documented gaps/decisions.
+- Checks: context validator and git diff --check rerun after final documentation. Next authorized action: report these bounded results; no additional features or installation inferred.

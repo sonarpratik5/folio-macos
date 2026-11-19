@@ -1,0 +1,493 @@
+[
+  {
+    "id": "import-library",
+    "title": "Import, folders and managed storage",
+    "keywords": [
+      "import",
+      "folder",
+      "library",
+      "manifest",
+      "corruption",
+      "remove",
+      "recent"
+    ],
+    "area": "library",
+    "entry": [
+      {
+        "path": "Sources/FolioMac/LibraryImportViews.swift",
+        "symbol": "ArxivImportSheet"
+      },
+      {
+        "path": "Sources/FolioMac/Workspace.swift",
+        "symbol": "func openFolder"
+      },
+      {
+        "path": "Sources/FolioMac/Workspace.swift",
+        "symbol": "func removePaper"
+      },
+      {
+        "path": "Sources/FolioCore/LibraryRepository.swift",
+        "symbol": "LibraryRepository"
+      }
+    ],
+    "flow": "Library UI \u2192 Workspace \u2192 LibraryRepository \u2192 managed PDF + manifest",
+    "tests": [
+      "Tests/FolioCoreTests/LibraryRepositoryTests.swift",
+      "Tests/FolioCoreTests/ArxivAndOrganizingTests.swift",
+      "Tests/FolioMacTests/ReaderParityTests.swift"
+    ],
+    "guards": [
+      "storage",
+      "session"
+    ]
+  },
+  {
+    "id": "annotations",
+    "title": "Highlight, text, images and Undo/Redo",
+    "keywords": [
+      "annotation",
+      "highlight",
+      "underline",
+      "eraser",
+      "palette",
+      "color",
+      "text",
+      "image",
+      "undo",
+      "redo"
+    ],
+    "area": "reader",
+    "entry": [
+      {
+        "path": "Sources/FolioMac/PDFCanvas.swift",
+        "symbol": "ToolPDFView"
+      },
+      {
+        "path": "Sources/FolioMac/Workspace.swift",
+        "symbol": "func markSelection"
+      },
+      {
+        "path": "Sources/FolioMac/AnnotationPalette.swift",
+        "symbol": "AnnotationPalette"
+      },
+      {
+        "path": "Sources/FolioCore/PDFEditing.swift",
+        "symbol": "PDFEditing"
+      }
+    ],
+    "flow": "PDFCanvas \u2192 Workspace \u2192 PDFEditing/PDFEditHistory \u2192 repository save \u2192 revision refresh",
+    "tests": [
+      "Tests/FolioCoreTests/PDFEditingTests.swift",
+      "Tests/FolioMacTests/WorkspaceEditingTests.swift",
+      "Tests/FolioMacTests/WebStyleRenderTests.swift"
+    ],
+    "guards": [
+      "annotations",
+      "storage",
+      "palette"
+    ]
+  },
+  {
+    "id": "notes-writing",
+    "title": "Written notes, attachments and inserted pages",
+    "keywords": [
+      "notes",
+      "writing",
+      "attachment",
+      "draft",
+      "page",
+      "insert",
+      "structural",
+      "journal"
+    ],
+    "area": "reader",
+    "entry": [
+      {
+        "path": "Sources/FolioMac/NotesInspector.swift",
+        "symbol": "struct NotesInspector"
+      },
+      {
+        "path": "Sources/FolioMac/Workspace+Notes.swift",
+        "symbol": "WritingPageOp"
+      },
+      {
+        "path": "Sources/FolioMac/WritingBelowView.swift",
+        "symbol": "struct WritingBelowView"
+      },
+      {
+        "path": "Sources/FolioCore/NotesSupport.swift",
+        "symbol": "public enum WritingPages"
+      }
+    ],
+    "flow": "Inspector/editor \u2192 Workspace+Notes \u2192 PDF history + coordinated structural save; finishEditorIfNeeded gates transitions",
+    "tests": [
+      "Tests/FolioMacTests/WorkspaceEditingTests.swift",
+      "Tests/FolioMacTests/ReaderParityTests.swift",
+      "Tests/FolioCoreTests/NotesSupportTests.swift",
+      "Tests/FolioCoreTests/StudyCopyTests.swift"
+    ],
+    "guards": [
+      "annotations",
+      "structure",
+      "session"
+    ]
+  },
+  {
+    "id": "reader-search",
+    "title": "Find, zoom, page restoration and thumbnails",
+    "keywords": [
+      "find",
+      "search",
+      "zoom",
+      "navigation",
+      "thumbnail",
+      "unicode",
+      "cache",
+      "performance"
+    ],
+    "area": "reader",
+    "entry": [
+      {
+        "path": "Sources/FolioMac/ReaderState.swift",
+        "symbol": "final class ReaderState"
+      },
+      {
+        "path": "Sources/FolioMac/PDFCanvas.swift",
+        "symbol": "Coordinator"
+      },
+      {
+        "path": "Sources/FolioMac/ReaderSidebarParts.swift",
+        "symbol": "struct DocumentSidebar"
+      }
+    ],
+    "flow": "Reader controls \u2192 ReaderState \u2192 PDFKit on main actor; session/revision invalidate search and thumbnail caches",
+    "tests": [
+      "Tests/FolioCoreTests/ReadingPositionTests.swift",
+      "Tests/FolioMacTests/ReaderRenderTests.swift",
+      "Tests/FolioMacTests/ReaderParityTests.swift"
+    ],
+    "guards": [
+      "session"
+    ]
+  },
+  {
+    "id": "export",
+    "title": "Export PDF and study copies",
+    "keywords": [
+      "export",
+      "pdf",
+      "copy",
+      "rotation",
+      "study"
+    ],
+    "area": "reader",
+    "entry": [
+      {
+        "path": "Sources/FolioMac/Workspace.swift",
+        "symbol": "func exportCopy"
+      },
+      {
+        "path": "Sources/FolioCore/StudyCopy.swift",
+        "symbol": "StudyCopy"
+      }
+    ],
+    "flow": "Flush editor/writing \u2192 detached PDF serialization \u2192 explicit export destination; StudyCopy owns transformations",
+    "tests": [
+      "Tests/FolioCoreTests/LibraryRepositoryTests.swift",
+      "Tests/FolioCoreTests/StudyCopyTests.swift",
+      "Tests/FolioMacTests/ReaderParityTests.swift"
+    ],
+    "guards": [
+      "storage",
+      "annotations"
+    ]
+  },
+  {
+    "id": "ask",
+    "title": "Ask, providers, streaming and saved chats",
+    "keywords": [
+      "ask",
+      "chat",
+      "assistant",
+      "codex",
+      "claude",
+      "stream",
+      "conversation",
+      "cancellation",
+      "ai",
+      "provider"
+    ],
+    "area": "assistant",
+    "entry": [
+      {
+        "path": "Sources/FolioMac/AskPanel.swift",
+        "symbol": "struct AskPanel"
+      },
+      {
+        "path": "Sources/FolioMac/PaperAssistantView.swift",
+        "symbol": "PaperAssistantModel"
+      },
+      {
+        "path": "Sources/FolioMac/ReaderPanel.swift",
+        "symbol": "final class PaperAIStore"
+      },
+      {
+        "path": "Sources/FolioCore/AssistantService.swift",
+        "symbol": "AssistantService"
+      },
+      {
+        "path": "Sources/FolioCore/AssistantProvider.swift",
+        "symbol": "AssistantProvider"
+      }
+    ],
+    "flow": "AskPanel \u2192 paper-bound model \u2192 AssistantService \u2192 explicit provider \u2192 fingerprinted local repository",
+    "tests": [
+      "Tests/FolioCoreTests/AssistantTests.swift",
+      "Tests/FolioCoreTests/AssistantThreadsTests.swift",
+      "Tests/FolioMacTests/PaperAssistantTests.swift"
+    ],
+    "guards": [
+      "provider",
+      "session"
+    ]
+  },
+  {
+    "id": "selection-insight",
+    "title": "Selection explanation and popup",
+    "keywords": [
+      "selection",
+      "explain",
+      "explanation",
+      "popup",
+      "insights"
+    ],
+    "area": "assistant",
+    "entry": [
+      {
+        "path": "Sources/FolioMac/SelectionInsightView.swift",
+        "symbol": "SelectionInsightModel"
+      },
+      {
+        "path": "Sources/FolioMac/PDFCanvas.swift",
+        "symbol": "Coordinator"
+      }
+    ],
+    "flow": "Explicit Insights mode/Explain \u2192 captured selection/page \u2192 isolated model \u2192 provider \u2192 anchored popup",
+    "tests": [
+      "Tests/FolioMacTests/SelectionInsightTests.swift"
+    ],
+    "guards": [
+      "provider",
+      "session"
+    ]
+  },
+  {
+    "id": "paper-insights",
+    "title": "Paper overview, reviews and concept graph",
+    "keywords": [
+      "overview",
+      "glance",
+      "reviews",
+      "concept",
+      "graph",
+      "map",
+      "insights"
+    ],
+    "area": "assistant",
+    "entry": [
+      {
+        "path": "Sources/FolioMac/InsightsView.swift",
+        "symbol": "struct InsightsView"
+      },
+      {
+        "path": "Sources/FolioMac/PaperGlancePanel.swift",
+        "symbol": "struct GlancePanel"
+      },
+      {
+        "path": "Sources/FolioMac/PaperReviewsView.swift",
+        "symbol": "struct ReviewsPanel"
+      },
+      {
+        "path": "Sources/FolioMac/PaperConceptGraphView.swift",
+        "symbol": "struct ConceptMapPanel"
+      }
+    ],
+    "flow": "Workspace.present \u2192 Insights destination or reader panel \u2192 per-paper AI models \u2192 bounded source-validated evidence",
+    "tests": [
+      "Tests/FolioCoreTests/NativeReviewTests.swift",
+      "Tests/FolioCoreTests/ConceptGraphTests.swift",
+      "Tests/FolioMacTests/ConceptGraphSelectionTests.swift",
+      "Tests/FolioMacTests/WebStyleRenderTests.swift"
+    ],
+    "guards": [
+      "provider",
+      "session"
+    ]
+  },
+  {
+    "id": "credentials",
+    "title": "Provider configuration and noninteractive credentials",
+    "keywords": [
+      "credentials",
+      "keychain",
+      "dotenv",
+      "authentication",
+      "api",
+      "key",
+      "settings"
+    ],
+    "area": "assistant",
+    "entry": [
+      {
+        "path": "Sources/FolioMac/SettingsView.swift",
+        "symbol": "struct SettingsView"
+      },
+      {
+        "path": "Sources/FolioCore/ClaudeKeyStore.swift",
+        "symbol": "ClaudeKeyStore"
+      },
+      {
+        "path": "Sources/FolioCore/LocalDotEnv.swift",
+        "symbol": "LocalDotEnv"
+      }
+    ],
+    "flow": "Launch environment \u2192 LocalDotEnv \u2192 existing Keychain; explicit Claude request only; no Settings key-management controls",
+    "tests": [
+      "Tests/FolioCoreTests/CredentialSessionTests.swift"
+    ],
+    "guards": [
+      "credentials",
+      "provider"
+    ]
+  },
+  {
+    "id": "skim",
+    "title": "Local Skim classifier and margin guides",
+    "keywords": [
+      "skim",
+      "classifier",
+      "tokenizer",
+      "minilm",
+      "model",
+      "margin"
+    ],
+    "area": "reader",
+    "entry": [
+      {
+        "path": "Sources/FolioMac/Workspace+Skim.swift",
+        "symbol": "func toggleSkim"
+      },
+      {
+        "path": "Sources/FolioMac/MarginMarks.swift",
+        "symbol": "final class MarginMarksView"
+      },
+      {
+        "path": "Sources/FolioCore/SkimClassifier.swift",
+        "symbol": "SkimClassifier"
+      }
+    ],
+    "flow": "Explicit toggle \u2192 local SkimClassifier windows \u2192 identity-checked view-only marks; model provenance in Models/Skim/MODEL.md",
+    "tests": [
+      "Tests/FolioCoreTests/SkimClassifierTests.swift",
+      "Tests/FolioCoreTests/MarginLayoutTests.swift",
+      "Tests/FolioMacTests/SkimWorkspaceTests.swift"
+    ],
+    "guards": [
+      "session"
+    ]
+  },
+  {
+    "id": "shell-theme",
+    "title": "Window, sidebar, theme and accessibility",
+    "keywords": [
+      "theme",
+      "glass",
+      "appearance",
+      "contrast",
+      "sidebar",
+      "window",
+      "shell"
+    ],
+    "area": "shell",
+    "entry": [
+      {
+        "path": "Sources/FolioMac/FolioApp.swift",
+        "symbol": "struct FolioApp"
+      },
+      {
+        "path": "Sources/FolioMac/WorkspaceView.swift",
+        "symbol": "struct WorkspaceView"
+      },
+      {
+        "path": "Sources/FolioMac/Theme.swift",
+        "symbol": "FolioTheme"
+      }
+    ],
+    "flow": "FolioApp \u2192 shared Workspace \u2192 WorkspaceView \u2192 theme/material tokens and accessibility fallbacks",
+    "tests": [
+      "Tests/FolioMacTests/WebStyleRenderTests.swift",
+      "Tests/FolioMacTests/ReaderRenderTests.swift"
+    ],
+    "guards": [
+      "palette"
+    ]
+  },
+  {
+    "id": "menu-timer",
+    "title": "Menu bar launcher and pull timer",
+    "keywords": [
+      "menu",
+      "timer",
+      "pull",
+      "gesture",
+      "status",
+      "launcher"
+    ],
+    "area": "shell",
+    "entry": [
+      {
+        "path": "Sources/FolioMac/MenuBarController.swift",
+        "symbol": "final class MenuBarController"
+      },
+      {
+        "path": "Sources/FolioMac/PullTimerGesture.swift",
+        "symbol": "struct PullTimerGesture"
+      },
+      {
+        "path": "Sources/FolioMac/FocusTimerModel.swift",
+        "symbol": "final class FocusTimerModel"
+      }
+    ],
+    "flow": "Status-item capture \u2192 PullTimerGesture/duration calculator \u2192 overlay \u2192 deadline timer",
+    "tests": [
+      "Tests/FolioMacTests/MenuBarTests.swift"
+    ],
+    "guards": []
+  },
+  {
+    "id": "agent-harness",
+    "title": "Agent navigation, memory, validation and packaging",
+    "keywords": [
+      "agent",
+      "harness",
+      "context",
+      "routing",
+      "memory",
+      "ci",
+      "build",
+      "package"
+    ],
+    "area": "harness",
+    "entry": [
+      {
+        "path": "scripts/context.py",
+        "symbol": "def route("
+      }
+    ],
+    "flow": "AGENTS \u2192 feature router \u2192 scoped owner + sensitive contracts \u2192 focused checks \u2192 authoritative docs + checkpoint",
+    "tests": [
+      "scripts/test_context.py"
+    ],
+    "guards": []
+  }
+]

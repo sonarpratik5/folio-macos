@@ -1,115 +1,221 @@
 import SwiftUI
 import FolioCore
 
-/// Paper overview and local skim, displayed only on the library Insights page.
-/// State lives in `PaperAIStore`, so it is not cancelled on disappear. AI runs only from the Generate button.
+/// Matches the web ConceptMap's three anchors and click-to-reveal details.
+/// The page owns generation/persistence; this view owns only presentation state.
 struct GlancePanel: View {
-    @State private var abstractExpanded = false
     @ObservedObject var workspace: Workspace
     @ObservedObject var model: PaperAssistantModel
     let paper: PaperRecord
+    var expanded = false
     @AppStorage("folio.assistant.provider") private var providerValue = AssistantProvider.codex.rawValue
+    @Environment(\.colorScheme) private var scheme
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.dismiss) private var dismiss
+    @State private var panelWidth: CGFloat = 0
+    @State private var selected: String?
+    @State private var showSources = false
+    @State private var showExpanded = false
+    @FocusState private var focusedIdea: String?
+    private let roles = ["problem", "approach", "finding"]
     private var provider: AssistantProvider { AssistantProvider(rawValue: providerValue) ?? .codex }
+    private var engine: String { provider == .codex ? "Codex" : "Claude" }
+    private var overview: AssistantOverview? { model.snapshot?.overview }
+    private var border: Color { contrast == .increased ? .primary : Color.secondary.opacity(0.25) }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("Paper at a glance").font(FolioTheme.heading(26)).accessibilityAddTraits(.isHeader)
-                Spacer()
-                ProviderSwitch()
+        VStack(alignment: .leading, spacing: 0) {
+            header.padding(24)
+            if let error = model.error {
+                HStack(alignment: .top) {
+                    Text(error).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button { model.error = nil } label: { Image(systemName: "xmark") }.accessibilityLabel("Dismiss concept error")
+                }.font(.callout).foregroundStyle(.red).padding(16)
             }
-            ScrollView {
+            if model.busy {
+                HStack(spacing: 9) {
+                    ProgressView().controlSize(.small)
+                    Text(model.progress).font(.callout).fixedSize(horizontal: false, vertical: true)
+                    Spacer()
+                    Button("Cancel") { model.cancel() }
+                }.padding(16).background(FolioTheme.background)
+            }
+            if let overview {
+                steps(overview, horizontal: panelWidth > 600)
+                if let card = overview.cards.first(where: { $0.id == selected }) {
+                    details(card).padding(.horizontal, 26).padding(.bottom, 20)
+                }
+                Text("\(overview.provider == .codex ? "Codex" : "Claude")\(overview.coverage.hasPrefix("Sampled") ? " · Based on excerpts" : "")   ·   Tap an idea to look closer")
+                    .font(.system(size: 11)).foregroundStyle(.secondary).padding(.horizontal, 26).padding(.bottom, 19)
+            } else if !model.busy {
                 VStack(alignment: .leading, spacing: 16) {
-                    overview
-                    Divider()
-                    insightsSection
-                }.frame(maxWidth: .infinity, alignment: .leading).padding(.bottom, 12)
-            }.scrollIndicators(.automatic)
-        }
-        .padding(.horizontal, 16).padding(.top, 18).padding(.bottom, 12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(FolioTheme.panelRight)
-        .onAppear { model.load(root: workspace.repository?.root, record: paper); model.loadInsights() }
-        .onDisappear { model.cancel() }
-    }
-
-    private var overview: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Problem, approach & finding").font(FolioTheme.heading(20))
-                Text("Three concise ideas, each backed by exact passages.").font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-            HStack(spacing: 8) {
-                Button(model.snapshot?.overview == nil ? "Generate overview" : "Regenerate") { model.generateOverview(provider: provider) }
-                    .buttonStyle(.borderedProminent).disabled(model.busy || model.paper == nil)
-                if model.busy { Button("Cancel") { model.cancel() } }
-            }
-            if model.busy { HStack { ProgressView().controlSize(.small); Text(model.progress).font(.callout).fixedSize(horizontal: false, vertical: true) } }
-            if let error = model.error { Text(error).font(.callout).foregroundStyle(.red).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
-            if let overview = model.snapshot?.overview {
-                Text("\(overview.provider.name) · \(overview.coverage)").font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
-                ForEach(overview.cards) { card in
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text(card.id.capitalized).font(.caption.weight(.semibold)).foregroundStyle(FolioTheme.accent)
-                        Text(card.label).font(FolioTheme.heading(18)).fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
-                        Text(card.explanation).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                        ForEach(card.sources) { source in
-                            VStack(alignment: .leading, spacing: 6) {
-                                Button("Read source · p. \(source.page)") { workspace.open(paper, at: source.page) }.buttonStyle(.link)
-                                    .accessibilityLabel("Go to page \(source.page)")
-                                Text(source.text).font(.caption).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                            }.frame(maxWidth: .infinity, alignment: .leading).folioWell()
-                        }
-                    }.frame(maxWidth: .infinity, alignment: .leading).folioCard(padding: 14)
-                }
-                ForEach(["problem", "approach", "finding"].filter { role in !overview.cards.contains(where: { $0.id == role }) }, id: \.self) { role in
-                    Text("\(role.capitalized): not supported by the supplied text.").font(.callout).foregroundStyle(.secondary)
-                }
-            } else {
-                Text("Generate sends the extracted text to \(provider.name). Long papers use distributed excerpts; the saved overview reports its coverage. Unsupported findings are left out.")
-                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    private var insightsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                Label("Skim on this Mac", systemImage: "text.magnifyingglass").font(FolioTheme.heading(18))
-                Text("Offline · no AI").font(.caption).padding(.horizontal, 8).padding(.vertical, 3).background(FolioTheme.accent.opacity(0.12), in: Capsule())
-            }
-            if let insights = model.insights {
-                Text("\(insights.words.formatted()) words · about \(insights.minutes) min read").font(.caption).foregroundStyle(.secondary)
-                if !insights.abstract.isEmpty {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(insights.abstract).textSelection(.enabled).lineLimit(abstractExpanded ? nil : 6).fixedSize(horizontal: false, vertical: true)
-                        if insights.abstract.count > 360 {
-                            Button(abstractExpanded ? "Show less" : "Show more") { abstractExpanded.toggle() }.buttonStyle(.link).font(.caption)
-                        }
-                    }.folioWell(padding: 12)
-                }
-                if !insights.keywords.isEmpty { GlanceTags(tags: insights.keywords.map(\.term)) }
-                if !insights.keySentences.isEmpty {
-                    Text("Key sentences").font(.headline)
-                    ForEach(insights.keySentences) { item in
-                        HStack(alignment: .top, spacing: 10) {
-                            RoundedRectangle(cornerRadius: 2).fill(Color.yellow.opacity(0.7)).frame(width: 3)
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(item.text).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                                Button("p. \(item.page)") { workspace.open(paper, at: item.page) }.buttonStyle(.link).font(.caption)
-                                    .accessibilityLabel("Go to page \(item.page)")
-                            }.frame(maxWidth: .infinity, alignment: .leading)
-                        }
+                    HStack(spacing: 16) {
+                        Text("Three key ideas, explained by \(engine).").font(.system(size: 14)).foregroundStyle(.secondary)
+                        Button { model.generateOverview(provider: provider) } label: {
+                            Label("Generate with \(engine)", systemImage: "sparkles")
+                        }.buttonStyle(.borderedProminent).disabled(model.paper == nil)
                     }
-                } else if insights.abstract.isEmpty { Text("No readable prose was found in this PDF’s text layer.").foregroundStyle(.secondary) }
-            } else if model.paper == nil { Text("The paper text is unavailable.").foregroundStyle(.secondary) }
-            else { HStack { ProgressView().controlSize(.small); Text("Reading the text layer…").foregroundStyle(.secondary) } }
+                    Text("Paper text is sent to \(engine) only when you generate. Saved overviews reopen without another call.")
+                        .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }.padding(.horizontal, 24).padding(.bottom, 28)
+            }
         }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .background(FolioTheme.card, in: RoundedRectangle(cornerRadius: 16))
+        .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(border))
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { panelWidth = $0 }
+        .accessibilityElement(children: .contain).accessibilityLabel("Paper at a glance")
+        .onChange(of: overview) { _, value in
+            selected = nil; showSources = false
+            focusedIdea = roles.first { role in value?.cards.contains(where: { $0.id == role }) == true }
+        }
+        .sheet(isPresented: $showExpanded) {
+            ScrollView {
+                GlancePanel(workspace: workspace, model: model, paper: paper, expanded: true).padding(28)
+            }.frame(minWidth: 680, idealWidth: 960, minHeight: 480, idealHeight: 650)
+        }
+    }
+
+    private var header: some View {
+        HStack(spacing: 11) {
+            Image(systemName: "square.3.layers.3d").font(.system(size: 18, weight: .light))
+                .frame(width: 34, height: 34).background(FolioTheme.background, in: RoundedRectangle(cornerRadius: 10))
+            VStack(alignment: .leading, spacing: 5) {
+                Text("Paper at a glance").font(.system(size: 23, weight: .medium)).accessibilityAddTraits(.isHeader)
+                if expanded { Text(paper.title).font(.caption).foregroundStyle(.secondary) }
+            }
+            Spacer(minLength: 8)
+            if overview != nil {
+                Button { model.generateOverview(provider: provider) } label: { Label("Regenerate", systemImage: "sparkles") }
+                    .disabled(model.busy || model.paper == nil)
+                    .help("Ask \(engine) to reread the paper and replace this saved overview")
+            }
+            Button { if expanded { dismiss() } else { showExpanded = true } } label: {
+                Image(systemName: expanded ? "xmark" : "arrow.up.left.and.arrow.down.right")
+            }.buttonStyle(.plain).accessibilityLabel(expanded ? "Close paper at a glance" : "Expand paper at a glance")
+        }
+    }
+
+    @ViewBuilder
+    private func steps(_ overview: AssistantOverview, horizontal: Bool) -> some View {
+        let layout = horizontal ? AnyLayout(HStackLayout(alignment: .top, spacing: 22)) : AnyLayout(VStackLayout(spacing: 12))
+        layout {
+            ForEach(Array(roles.enumerated()), id: \.element) { index, role in
+                let stepLayout = horizontal ? AnyLayout(VStackLayout(spacing: 13)) : AnyLayout(HStackLayout(alignment: .top, spacing: 12))
+                stepLayout {
+                    Text("\(index + 1)").font(.system(size: 11).monospacedDigit()).foregroundStyle(.secondary)
+                        .frame(width: 28, height: 28).background(FolioTheme.card, in: Circle())
+                        .overlay(Circle().strokeBorder(border)).padding(.top, horizontal ? 0 : 16)
+                        .accessibilityHidden(true)
+                    idea(overview.cards.first { $0.id == role }, role: role, index: index, horizontal: horizontal)
+                }.frame(maxWidth: .infinity)
+            }
+        }
+        .background {
+            GeometryReader { geometry in
+                Path { path in
+                    if horizontal {
+                        let inset = (geometry.size.width + 22) / 6
+                        path.move(to: CGPoint(x: inset, y: 14)); path.addLine(to: CGPoint(x: geometry.size.width - inset, y: 14))
+                    } else {
+                        path.move(to: CGPoint(x: 14, y: 30)); path.addLine(to: CGPoint(x: 14, y: geometry.size.height - 40))
+                    }
+                }.stroke(border, lineWidth: 1)
+            }
+        }.padding(.horizontal, horizontal ? 26 : 18).padding(.top, horizontal ? 14 : 8).padding(.bottom, 20)
+    }
+
+    private func idea(_ card: AssistantOverview.Card?, role: String, index: Int, horizontal: Bool) -> some View {
+        Button {
+            selected = selected == role ? nil : role
+            showSources = false
+        } label: {
+            VStack(alignment: .leading, spacing: horizontal ? 10 : 7) {
+                Text(role.uppercased()).font(.system(size: 10, weight: .semibold)).tracking(1).foregroundStyle(.secondary)
+                Text(card?.label ?? (overview?.coverage.hasPrefix("Sampled") == true ? "Not found in excerpts" : "Not reported"))
+                    .font(.system(size: horizontal ? 16 : 15, weight: card == nil ? .regular : .medium))
+                    .foregroundStyle(card == nil ? FolioTheme.muted : FolioTheme.ink)
+                    .fixedSize(horizontal: false, vertical: true).multilineTextAlignment(.leading)
+            }.padding(horizontal ? 18 : 16)
+                .frame(maxWidth: .infinity, minHeight: horizontal ? 112 : 80, alignment: .topLeading)
+                .background(GlanceOutline(variant: index).fill(card == nil ? FolioTheme.card : pastel(index)))
+                .overlay(GlanceOutline(variant: index).stroke(selected == role ? FolioTheme.accent : border,
+                    style: StrokeStyle(lineWidth: selected == role ? 1.7 : 1, dash: card == nil ? [4, 4] : [])))
+                .contentShape(RoundedRectangle(cornerRadius: 11))
+        }.buttonStyle(.plain).disabled(card == nil).focused($focusedIdea, equals: role)
+            .accessibilityLabel("\(role.capitalized): \(card?.label ?? "Not reported")")
+            .accessibilityValue(selected == role ? "Expanded" : "Collapsed")
+            .help(card?.label ?? "Not reported")
+    }
+
+    private func pastel(_ index: Int) -> Color {
+        let light: [(Double, Double, Double)] = [(0.984, 0.937, 0.910), (0.941, 0.925, 0.980), (0.929, 0.961, 0.933)]
+        let dark: [(Double, Double, Double)] = [(0.23, 0.19, 0.17), (0.21, 0.19, 0.27), (0.17, 0.23, 0.19)]
+        let rgb = (scheme == .dark ? dark : light)[index]
+        return Color(red: rgb.0, green: rgb.1, blue: rgb.2)
+    }
+
+    private func details(_ card: AssistantOverview.Card) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top) {
+                Text(card.label).font(.system(size: 16, weight: .medium)).textSelection(.enabled)
+                Spacer()
+                Button { selected = nil; focusedIdea = card.id } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.plain).accessibilityLabel("Close idea details")
+            }
+            Text(card.explanation).font(.system(size: 14)).lineSpacing(5).foregroundStyle(.secondary)
+                .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+            DisclosureGroup("View source", isExpanded: $showSources) {
+                ForEach(card.sources) { source in
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(source.text).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                        Button("Read page \(source.page) ↗") { read(source) }.buttonStyle(.link)
+                    }.font(.system(size: 14)).frame(maxWidth: .infinity, alignment: .leading).padding(14).background(FolioTheme.background)
+                }
+            }.font(.caption).id(card.id)
+            if let source = card.sources.first {
+                HStack(spacing: 8) {
+                    Button { read(source) } label: { Label("Read page \(source.page) ↗", systemImage: "book") }
+                    Button {
+                        if expanded { dismiss() }
+                        workspace.present(.assistant, for: paper, selection: source.text, page: source.page)
+                    } label: { Label("Ask about this", systemImage: "bubble") }
+                }.controlSize(.small)
+            }
+        }.padding(20).frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(RoundedRectangle(cornerRadius: 11).strokeBorder(border))
+            .accessibilityElement(children: .contain).accessibilityLabel("Selected idea")
+    }
+
+    private func read(_ source: AssistantPassage) {
+        if expanded { dismiss() }
+        workspace.open(paper, at: source.page)
+    }
+}
+
+/// The web sketch frames use a 300 × 140 coordinate space and quadratic curves.
+private struct GlanceOutline: Shape {
+    let variant: Int
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        let v = CGFloat(variant) * 0.2
+        p.move(to: CGPoint(x: 12, y: 2 + v))
+        p.addQuadCurve(to: CGPoint(x: 288, y: 2), control: CGPoint(x: 149, y: 1.5 + v))
+        p.addQuadCurve(to: CGPoint(x: 298, y: 12), control: CGPoint(x: 298, y: 2.4))
+        p.addQuadCurve(to: CGPoint(x: 298, y: 128), control: CGPoint(x: 298.5 - v, y: 70))
+        p.addQuadCurve(to: CGPoint(x: 288, y: 138), control: CGPoint(x: 298, y: 138))
+        p.addQuadCurve(to: CGPoint(x: 12, y: 138), control: CGPoint(x: 150, y: 138.5 - v))
+        p.addQuadCurve(to: CGPoint(x: 2, y: 128), control: CGPoint(x: 2, y: 138))
+        p.addQuadCurve(to: CGPoint(x: 2, y: 12), control: CGPoint(x: 1.5 + v, y: 70))
+        p.addQuadCurve(to: CGPoint(x: 12, y: 2 + v), control: CGPoint(x: 2, y: 2.4))
+        p.closeSubpath()
+        return p.applying(CGAffineTransform(scaleX: rect.width / 300, y: rect.height / 140).translatedBy(x: rect.minX, y: rect.minY))
     }
 }
 
 /// Wrapping keyword chips that stay inside a narrow column.
-private struct GlanceTags: View {
+struct GlanceTags: View {
     let tags: [String]
     var body: some View {
         GlanceWrap(spacing: 6) { ForEach(tags, id: \.self) { chip($0) } }

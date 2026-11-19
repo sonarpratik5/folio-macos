@@ -16,15 +16,17 @@ struct ReaderIconStyle: ButtonStyle {
         @Environment(\.isEnabled) private var enabled
         @State private var hovering = false
         var body: some View {
-            let shape = RoundedRectangle(cornerRadius: 5, style: .continuous)
+            let shape = RoundedRectangle(cornerRadius: 9, style: .continuous)
             configuration.label
                 .font(.system(size: 14, weight: .medium))
                 .foregroundStyle(!enabled ? FolioTheme.iconDisabled : active ? FolioTheme.iconActiveInk : FolioTheme.iconIdle)
                 .frame(width: size, height: size)
                 .background(shape.fill(active ? FolioTheme.iconActiveBg : (hovering && enabled) || configuration.isPressed ? FolioTheme.iconHover : .clear))
+                .overlay { shape.strokeBorder(active ? FolioTheme.rowActiveLine : .clear, lineWidth: 1) }
                 .contentShape(shape)
                 .opacity(configuration.isPressed ? 0.8 : 1)
                 .onHover { hovering = $0 }
+                .accessibilityAddTraits(active ? .isSelected : [])
         }
     }
 }

@@ -3,10 +3,11 @@ import Security
 import LocalAuthentication
 
 /// The reader's Claude API key, stored only in this Mac's login Keychain (never in the library, defaults or logs).
-/// `ANTHROPIC_API_KEY` in the launch environment still takes priority when set.
+/// Launch-environment credentials take priority over the local `.env`, then Keychain.
 public enum ClaudeKeyStore {
     static let service = "dev.folio.mac.claude-api"
-    static let account = "default"
+    private static let accountDefaultsKey = "folio.assistant.claudeKeyAccount"
+    static var account: String { UserDefaults.standard.string(forKey: accountDefaultsKey) ?? "default" }
     // Applies to secret reads and writes as well as presence checks. Login-Keychain ACLs
     // can change after an ad-hoc rebuild; unavailable access must fail inline, never prompt.
     static func nonInteractiveQuery() -> [String: Any] {
@@ -18,12 +19,18 @@ public enum ClaudeKeyStore {
                 kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail]
     }
     private static var query: [String: Any] { nonInteractiveQuery() }
+    // Legacy login-Keychain ACL authorization can ignore the item-query LA flags.
+    // This Security.framework switch is process-local; it does not unlock a Keychain
+    // or alter any item's ACL. Fail closed if the no-dialog policy cannot be set.
+    private static let interactionDisabled = SecKeychainSetUserInteractionAllowed(false) == errSecSuccess
+    @discardableResult public static func prepareNonInteractiveAccess() -> Bool { interactionDisabled }
     private static let session = CredentialSession()
     /// Secret access is reserved for an explicit Claude request. Reuse a successful unlock this session.
     public static func read() -> String? {
         session.read { readKeychain() }
     }
     private static func readKeychain() -> String? {
+        guard prepareNonInteractiveAccess() else { return nil }
         var item: CFTypeRef?
         var q = query; q[kSecReturnData as String] = true; q[kSecMatchLimit as String] = kSecMatchLimitOne
         guard SecItemCopyMatching(q as CFDictionary, &item) == errSecSuccess, let data = item as? Data,
@@ -33,6 +40,7 @@ public enum ClaudeKeyStore {
     /// Presence checks must never retrieve secret data or show an authentication dialog.
     public static var hasKey: Bool {
         if session.hasValue { return true }
+        guard prepareNonInteractiveAccess() else { return false }
         var q = query
         q[kSecReturnAttributes as String] = true
         q[kSecMatchLimit as String] = kSecMatchLimitOne
@@ -40,41 +48,38 @@ public enum ClaudeKeyStore {
         return status == errSecSuccess
     }
     @discardableResult public static func save(_ key: String) -> Bool {
+        guard prepareNonInteractiveAccess() else { return false }
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return delete() }
-        let data = Data(trimmed.utf8)
-        let status = SecItemUpdate(query as CFDictionary, [kSecValueData as String: data] as CFDictionary)
-        if status == errSecItemNotFound {
-            var add = query; add[kSecValueData as String] = data
-            add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
-            let added = SecItemAdd(add as CFDictionary, nil) == errSecSuccess
-            if added { session.replace(with: trimmed) }
-            return added
-        }
-        if status == errSecSuccess { session.replace(with: trimmed) }
-        return status == errSecSuccess
+        // A new app build may not satisfy the old item's code-signature ACL. Save
+        // a fresh app-owned item instead of trying to update an inaccessible item.
+        let previous = query
+        let nextAccount = UUID().uuidString
+        var add = query
+        add[kSecAttrAccount as String] = nextAccount
+        add[kSecAttrLabel as String] = "Folio Claude API key"
+        add[kSecValueData as String] = Data(trimmed.utf8)
+        add[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
+        guard SecItemAdd(add as CFDictionary, nil) == errSecSuccess else { return false }
+        UserDefaults.standard.set(nextAccount, forKey: accountDefaultsKey)
+        session.replace(with: trimmed)
+        // Best effort, still non-interactive. A denied old item stays in Keychain.
+        _ = SecItemDelete(previous as CFDictionary)
+        return true
     }
     @discardableResult public static func delete() -> Bool {
+        guard prepareNonInteractiveAccess() else { return false }
         let status = SecItemDelete(query as CFDictionary)
         let deleted = status == errSecSuccess || status == errSecItemNotFound
         if deleted { session.replace(with: nil) }
         return deleted
     }
-    /// `ANTHROPIC_API_KEY` from dotenv text (e.g. the web app's `.env`); handles `export`, quotes and comments.
+    public static func dotEnvKey(directory: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+                                 bundleURL: URL = Bundle.main.bundleURL) -> String? {
+        LocalDotEnv.value("ANTHROPIC_API_KEY", directory: directory, bundleURL: bundleURL)
+    }
     public static func key(fromDotEnv text: String) -> String? {
-        for raw in text.split(whereSeparator: \.isNewline) {
-            var line = raw.trimmingCharacters(in: .whitespaces)
-            if line.hasPrefix("export ") { line = String(line.dropFirst(7)).trimmingCharacters(in: .whitespaces) }
-            guard line.hasPrefix("ANTHROPIC_API_KEY"), let eq = line.firstIndex(of: "="),
-                  line[..<eq].trimmingCharacters(in: .whitespaces) == "ANTHROPIC_API_KEY" else { continue }
-            var value = line[line.index(after: eq)...].trimmingCharacters(in: .whitespaces)
-            if let quote = value.first, quote == "\"" || quote == "'", let end = value.dropFirst().firstIndex(of: quote) {
-                value = String(value[value.index(after: value.startIndex)..<end])
-            } else if let hash = value.range(of: " #") { value = String(value[..<hash.lowerBound]) }
-            value = value.trimmingCharacters(in: .whitespaces)
-            if !value.isEmpty, !value.hasPrefix("paste-") { return value }
-        }
-        return nil
+        LocalDotEnv.value("ANTHROPIC_API_KEY", from: text)
     }
     /// Claude model: launch-environment override, then the Settings choice, then the default.
     public static let modelDefaultsKey = "folio.assistant.claudeModel"

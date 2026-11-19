@@ -6,8 +6,8 @@ public struct AssistantThread: Codable, Identifiable, Equatable {
     public let createdAt: Date
     public var updatedAt: Date
     public var turns: [AssistantTurn]
-    public init(title: String = "New chat", turns: [AssistantTurn] = []) {
-        id = UUID(); self.title = AssistantThread.cleanTitle(title) ?? "New chat"; createdAt = Date(); updatedAt = Date(); self.turns = turns
+    public init(id: UUID = UUID(), title: String = "New chat", turns: [AssistantTurn] = []) {
+        self.id = id; self.title = AssistantThread.cleanTitle(title) ?? "New chat"; createdAt = Date(); updatedAt = Date(); self.turns = turns
     }
     public static func cleanTitle(_ raw: String) -> String? {
         let text = raw.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
@@ -68,10 +68,12 @@ public final class AssistantThreadRepository {
         guard FileManager.default.fileExists(atPath: url.path) else {
             var threads: [AssistantThread] = []
             if !legacyTurns.isEmpty {
-                var thread = AssistantThread(title: AssistantThread.cleanTitle(legacyTurns.first?.content ?? "") ?? "Earlier conversation", turns: legacyTurns)
+                var thread = AssistantThread(id: paperID, title: AssistantThread.cleanTitle(legacyTurns.first?.content ?? "") ?? "Earlier conversation", turns: legacyTurns)
                 thread.updatedAt = legacyTurns.last?.createdAt ?? Date(); threads = [thread]
             }
-            return AssistantThreads(paperID: paperID, fingerprint: fingerprint, threads: threads)
+            let migrated = AssistantThreads(paperID: paperID, fingerprint: fingerprint, threads: threads)
+            try validate(migrated)
+            return migrated
         }
         guard let size = try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber, size.intValue <= 8_000_000,
               let data = try? Data(contentsOf: url), let saved = try? JSONDecoder().decode(AssistantThreads.self, from: data) else { throw AssistantError.invalidData }

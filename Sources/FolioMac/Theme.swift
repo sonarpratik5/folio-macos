@@ -1,27 +1,87 @@
 import SwiftUI
 
-/// Flat web-style surface: card fill, 1px hairline, small radius, very subtle shadow (no system glass).
+// Internal render-fixture override; normal app behavior always follows macOS settings.
+private struct FolioOpaqueSurfacesKey: EnvironmentKey { static let defaultValue = false }
+extension EnvironmentValues {
+    var folioOpaqueSurfaces: Bool {
+        get { self[FolioOpaqueSurfacesKey.self] }
+        set { self[FolioOpaqueSurfacesKey.self] = newValue }
+    }
+}
+
+/// Readable content surfaces stay opaque; glass belongs to navigation and controls.
 private struct FolioGlassModifier: ViewModifier {
     let cornerRadius: CGFloat
-
+    @Environment(\.colorSchemeContrast) private var contrast
     func body(content: Content) -> some View {
-        let shape = RoundedRectangle(cornerRadius: min(cornerRadius, FolioRadius.card), style: .continuous)
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         content
             .background(shape.fill(FolioTheme.card))
-            .overlay { shape.strokeBorder(FolioTheme.line, lineWidth: 1) }
-            .shadow(color: .black.opacity(0.04), radius: 3, x: 0, y: 1)
+            .overlay { shape.strokeBorder(contrast == .increased ? FolioTheme.muted : FolioTheme.line, lineWidth: 1) }
+            .shadow(color: FolioTheme.surfaceShadow, radius: 10, x: 0, y: 3)
+    }
+}
+
+/// A single regular-glass layer per functional region, with a macOS 14/15 material fallback.
+private struct FolioChromeModifier: ViewModifier {
+    let cornerRadius: CGFloat
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.folioOpaqueSurfaces) private var forceOpaque
+    @Environment(\.colorSchemeContrast) private var contrast
+    func body(content: Content) -> some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        content
+            .background {
+                if forceOpaque || reduceTransparency || contrast == .increased {
+                    shape.fill(FolioTheme.panelLeft)
+                } else {
+                    material(shape)
+                }
+            }
+            .overlay { shape.strokeBorder(contrast == .increased ? FolioTheme.muted : FolioTheme.glassEdge, lineWidth: 1) }
+    }
+    @ViewBuilder private func material(_ shape: RoundedRectangle) -> some View {
+        #if compiler(>=6.2)
+        if #available(macOS 26.0, *) {
+            Color.clear.glassEffect(.regular, in: shape)
+        } else {
+            shape.fill(.regularMaterial).overlay(shape.fill(FolioTheme.panelLeft.opacity(0.55)))
+        }
+        #else
+        shape.fill(.regularMaterial).overlay(shape.fill(FolioTheme.panelLeft.opacity(0.55)))
+        #endif
+    }
+}
+
+private struct FolioSidebarModifier: ViewModifier {
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.colorSchemeContrast) private var contrast
+    @Environment(\.folioOpaqueSurfaces) private var forceOpaque
+    func body(content: Content) -> some View {
+        content.background {
+            if forceOpaque || reduceTransparency || contrast == .increased {
+                FolioTheme.panelLeft
+            } else {
+                Rectangle().fill(.regularMaterial)
+            }
+        }
     }
 }
 
 struct FolioBackdrop: View {
     var body: some View {
-        FolioTheme.background.ignoresSafeArea()
+        FolioTheme.background.ignoresSafeArea().allowsHitTesting(false)
     }
 }
 
 extension View {
-    func folioGlass(cornerRadius: CGFloat = 18) -> some View {
+    // Existing call sites use this for content cards, deliberately without Liquid Glass.
+    func folioGlass(cornerRadius: CGFloat = FolioRadius.panel) -> some View {
         modifier(FolioGlassModifier(cornerRadius: cornerRadius))
+    }
+    func folioSidebar() -> some View { modifier(FolioSidebarModifier()) }
+    func folioChrome(cornerRadius: CGFloat = 0) -> some View {
+        modifier(FolioChromeModifier(cornerRadius: cornerRadius))
     }
 }
 
@@ -34,52 +94,53 @@ enum FolioTheme {
                            blue: Double(hex & 255) / 255, alpha: 1)
         })
     }
-    // Web Folio palette. Light = web light; dark = neutral charcoal (not green-tinted).
-    static let background = adaptive(0xF8F9F6, 0x1F2022)
-    static let card = adaptive(0xFFFFFF, 0x27282A)
-    static let ink = adaptive(0x293B34, 0xE3E5E8)
-    static let accent = adaptive(0x284E40, 0xC4C6CA)
-    static let line = adaptive(0xD9DFD3, 0x3A3C3F)
-    static let canvas = adaptive(0xF0F2EC, 0x1F2022)
-    static let muted = adaptive(0x88928B, 0x8A8F97)
-    static let strip = adaptive(0xFAFBF8, 0x27282A)
-    static let footer = adaptive(0xF8FAF5, 0x27282A)
-    static let panelLeft = adaptive(0xFCFDFB, 0x262729)
-    static let panelRight = adaptive(0xFDFEFB, 0x252628)
-    static let field = adaptive(0xF3F5EF, 0x1F2022)
-    static let fieldLine = adaptive(0xE6E9E1, 0x3A3C3F)
-    static let sectionTitle = adaptive(0x929B90, 0x8A8F97)
-    static let rowHover = adaptive(0xF0F3ED, 0x2F3032)
-    static let rowActive = adaptive(0xEDF3E9, 0x333437)
-    static let rowActiveLine = adaptive(0xDDE6D5, 0x45474B)
-    static let rowActiveInk = adaptive(0x3B5B42, 0xE3E5E8)
-    static let rowInk = adaptive(0x7E887C, 0x9A9EA6)
-    static let badge = adaptive(0xEEF2E9, 0x333437)
-    static let badgeInk = adaptive(0x899584, 0x9A9EA6)
-    static let eyebrow = adaptive(0xA0A895, 0x80858D)
-    static let panelTitle = adaptive(0x3D573C, 0xDADCE0)
-    static let tabInk = adaptive(0xA0AA94, 0x80858D)
-    static let tabActiveInk = adaptive(0x465F3E, 0xE3E5E8)
-    static let tabActiveLine = adaptive(0x67815B, 0xC4C6CA)
-    static let quoteInk = adaptive(0x56634C, 0xC9CCD1)
-    static let noteInk = adaptive(0x929D86, 0x9A9EA6)
-    static let cardLine = adaptive(0xE6E9DF, 0x3A3C3F)
-    static let selectionCard = adaptive(0xF6F8F1, 0x2B2C2F)
-    static let selectionCardLine = adaptive(0xD9E3D0, 0x3F4144)
-    static let tipBox = adaptive(0xF2F5EC, 0x222326)
-    static let tipLine = adaptive(0xE7ECDD, 0x353739)
-    static let emptyHeading = adaptive(0x7D8C70, 0xA5A9B0)
-    static let pageShadow = Color.black.opacity(0.14)
-    /// Toolbar icons: web idle gray; hover wash; active pill with a quiet tint and darker glyph.
-    static let iconIdle = adaptive(0x7B887F, 0xA3A7AE)
-    static let iconDisabled = adaptive(0xBCC4BE, 0x55585E)
-    static let onAccent = adaptive(0xFFFFFF, 0x1F2022)
-    static let iconHover = adaptive(0xE9EEE7, 0x333437)
-    static let iconActiveBg = adaptive(0xE7EEE6, 0x3A3C40)
-    static let iconActiveInk = adaptive(0x35553D, 0xE3E5E8)
+    // Neutral native surfaces; color is reserved for actions and selection.
+    static let background = adaptive(0xF5F5F7, 0x1C1C1E)
+    static let card = adaptive(0xFFFFFF, 0x2C2C2E)
+    static let ink = adaptive(0x1D1D1F, 0xF5F5F7)
+    static let accent = adaptive(0x0057C2, 0x90BEFF)
+    static let line = adaptive(0xDADDE3, 0x48484D)
+    static let canvas = adaptive(0xECEEF2, 0x161618)
+    static let muted = adaptive(0x60646C, 0xB9BBC3)
+    static let strip = adaptive(0xF9F9FB, 0x2C2C2E)
+    static let footer = adaptive(0xF5F5F7, 0x242426)
+    static let panelLeft = adaptive(0xF0F1F4, 0x29292D)
+    static let panelRight = adaptive(0xFAFAFC, 0x242426)
+    static let field = adaptive(0xF0F1F4, 0x1C1C1E)
+    static let fieldLine = adaptive(0xB5BAC4, 0x737680)
+    static let sectionTitle = muted
+    static let rowHover = adaptive(0xE6E8EE, 0x39393E)
+    static let rowActive = adaptive(0xDFEAFB, 0x2C4160)
+    static let rowActiveLine = adaptive(0x9BBBE5, 0x6D91C5)
+    static let rowActiveInk = adaptive(0x164A91, 0xE3EEFF)
+    static let rowInk = adaptive(0x42464F, 0xD6D7DD)
+    static let badge = adaptive(0xE7E9EE, 0x393940)
+    static let badgeInk = adaptive(0x515762, 0xD6D9E1)
+    static let eyebrow = muted
+    static let panelTitle = ink
+    static let tabInk = muted
+    static let tabActiveInk = accent
+    static let tabActiveLine = accent
+    static let quoteInk = adaptive(0x42464F, 0xD6D9E1)
+    static let noteInk = muted
+    static let cardLine = line
+    static let selectionCard = adaptive(0xEFF4FC, 0x28364C)
+    static let selectionCardLine = adaptive(0xB8CCEA, 0x587499)
+    static let tipBox = adaptive(0xF0F1F4, 0x303035)
+    static let tipLine = line
+    static let emptyHeading = muted
+    static let pageShadow = Color.black.opacity(0.16)
+    static let iconIdle = adaptive(0x42464F, 0xE0E1E7)
+    static let iconDisabled = adaptive(0x969BA5, 0x787C86)
+    static let onAccent = adaptive(0xFFFFFF, 0x112744)
+    static let iconHover = rowHover
+    static let iconActiveBg = rowActive
+    static let iconActiveInk = rowActiveInk
+    static let glassEdge = adaptive(0xFFFFFF, 0x858590).opacity(0.24)
+    static let surfaceShadow = Color.black.opacity(0.025)
 
     static func heading(_ size: CGFloat) -> Font {
-        .system(size: size, weight: .regular, design: .serif)
+        .system(size: size, weight: .semibold)
     }
 }
 
@@ -109,17 +170,17 @@ enum FolioSpace {
 
 /// Corner radii. Controls use `control`, quiet cards `card`, hero/glass panels `panel`.
 enum FolioRadius {
-    static let control: CGFloat = 7
-    static let card: CGFloat = 9
-    static let panel: CGFloat = 9
+    static let control: CGFloat = 10
+    static let card: CGFloat = 12
+    static let panel: CGFloat = 16
 }
 
 extension FolioTheme {
     static let error = adaptive(0xB3382C, 0xFF9C8F)
     static let warning = adaptive(0x9A6A12, 0xF2C46D)
-    /// Section label above a group (small caps, tracked).
+    /// Quiet section label above a content group.
     static func overline(_ text: String) -> some View {
-        Text(text.uppercased()).font(.system(size: 10, weight: .bold)).tracking(1.1).foregroundStyle(accent)
+        Text(text).font(.system(size: 12, weight: .medium)).foregroundStyle(muted)
     }
 }
 
@@ -128,7 +189,7 @@ extension View {
     func folioCard(radius: CGFloat = FolioRadius.card, fill: Color = FolioTheme.card, padding: CGFloat = FolioSpace.m) -> some View {
         self.padding(padding)
             .background(fill, in: RoundedRectangle(cornerRadius: radius, style: .continuous))
-            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(FolioTheme.line.opacity(0.8)))
+            .overlay(RoundedRectangle(cornerRadius: radius, style: .continuous).strokeBorder(FolioTheme.line))
     }
 
     /// Inset well (editor/code/quote background) that sits inside a card.
@@ -137,13 +198,13 @@ extension View {
             .background(FolioTheme.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: radius, style: .continuous))
     }
 
-    /// Standard sheet surface: backdrop gradient that falls back to a flat colour under Reduce Transparency.
+    /// Neutral sheet surface shared with the workspace.
     func folioSheetBackground() -> some View {
         background(FolioBackdrop())
     }
 }
 
-/// Serif title with optional subtitle and trailing accessory; used as the header of every sheet and section.
+/// System title with optional subtitle and trailing accessory; used as the header of every sheet and section.
 struct FolioHeader<Trailing: View>: View {
     let title: String
     var subtitle: String? = nil
@@ -177,8 +238,8 @@ struct FolioChip: View {
             Text(title).font(.system(size: 12, weight: .medium))
         }
         .padding(.horizontal, 12).padding(.vertical, 6)
-        .background(selected ? FolioTheme.accent.opacity(0.16) : FolioTheme.card.opacity(0.7), in: Capsule())
-        .overlay(Capsule().strokeBorder(selected ? FolioTheme.accent.opacity(0.5) : FolioTheme.line.opacity(0.7)))
+        .background(selected ? FolioTheme.accent.opacity(0.16) : FolioTheme.card, in: Capsule())
+        .overlay(Capsule().strokeBorder(selected ? FolioTheme.accent.opacity(0.5) : FolioTheme.line))
         .foregroundStyle(selected ? FolioTheme.accent : FolioTheme.ink)
     }
 }
@@ -199,14 +260,14 @@ struct FolioNotice: View {
     }
 }
 
-/// Primary (filled forest) button for custom surfaces; system `.borderedProminent` is used elsewhere.
+/// Secondary control with an opaque fill and a clearly defined boundary.
 struct FolioSecondaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 12, weight: .medium))
             .padding(.horizontal, 12).padding(.vertical, 7)
-            .background(FolioTheme.card.opacity(configuration.isPressed ? 1 : 0.8), in: Capsule())
-            .overlay(Capsule().strokeBorder(FolioTheme.line.opacity(0.8)))
+            .background(configuration.isPressed ? FolioTheme.rowHover : FolioTheme.card, in: Capsule())
+            .overlay(Capsule().strokeBorder(FolioTheme.line))
             .foregroundStyle(FolioTheme.ink)
     }
 }

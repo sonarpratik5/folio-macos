@@ -79,7 +79,8 @@ public struct NoteDraftStore {
         guard let data = try? Data(contentsOf: file(paper)),
               let draft = try? JSONDecoder().decode(NoteDraftRecord.self, from: data),
               draft.page > 0, [draft.x, draft.y, draft.width, draft.height].allSatisfy(\.isFinite),
-              !draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+              (!draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+               (!draft.isFreeText && draft.images.contains(where: NoteImageStore.isValid))) else { return nil }
         return draft
     }
     public func clear(paper: UUID) { try? FileManager.default.removeItem(at: file(paper)) }

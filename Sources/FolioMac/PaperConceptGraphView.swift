@@ -143,8 +143,8 @@ struct ConceptMapPanel: View {
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 9) {
             Image(systemName: "point.3.connected.trianglepath.dotted").font(.system(size: 24, weight: .light)).foregroundStyle(FolioTheme.accent)
-            Text("Build a map from the paper").font(FolioTheme.heading(20))
-            Text("Generate sends at most 40 selected excerpts to \(provider.name). The map is checked against the PDF text and saved in this library. Nothing is generated until you choose Generate.")
+            Text("No concept map yet").font(FolioTheme.heading(20))
+            Text("Generate shares paper excerpts with \(provider.name) to map ideas and their connections.")
                 .font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             Button { model.generate(provider: provider, paperID: paper.id, refine: false) } label: { Label("Generate", systemImage: "sparkles") }
                 .buttonStyle(.borderedProminent).disabled(model.busy || model.paper == nil)

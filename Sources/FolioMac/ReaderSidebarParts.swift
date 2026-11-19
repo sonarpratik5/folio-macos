@@ -70,7 +70,6 @@ struct DocumentSidebar: View {
     @ObservedObject var workspace: Workspace
     @ObservedObject var reader: ReaderState
     @State private var tab = "pages"
-    private static let cache = NSCache<NSString, NSImage>()
 
     private var pageCount: Int { workspace.document?.pageCount ?? 0 }
 
@@ -82,7 +81,7 @@ struct DocumentSidebar: View {
         }
         .padding(.horizontal, 15).padding(.top, 22).padding(.bottom, 8)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(FolioTheme.panelLeft)
+        .folioSidebar()
     }
 
     private var pages: some View {
@@ -90,7 +89,7 @@ struct DocumentSidebar: View {
             ScrollView {
                 LazyVStack(spacing: 3) {
                     ForEach(1..<(max(pageCount, 1) + 1), id: \.self) { number in
-                        PageRow(workspace: workspace, number: number, thumbnail: thumbnail(number))
+                        PageRow(workspace: workspace, number: number)
                             .id(number)
                     }
                 }.padding(.vertical, 2)
@@ -98,15 +97,6 @@ struct DocumentSidebar: View {
             .onChange(of: workspace.page) { _, value in withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(value) } }
             .onAppear { proxy.scrollTo(workspace.page, anchor: .center) }
         }
-    }
-
-    private func thumbnail(_ number: Int) -> NSImage? {
-        guard let page = workspace.document?.page(at: number - 1) else { return nil }
-        let key = "\(workspace.activeID?.uuidString ?? "")-\(number)-\(page.rotation)-\(workspace.revision)" as NSString
-        if let cached = Self.cache.object(forKey: key) { return cached }
-        let made = page.thumbnail(of: CGSize(width: 70, height: 92), for: .cropBox)
-        Self.cache.setObject(made, forKey: key)
-        return made
     }
 
     private struct OutlineRow: Identifiable { let id: Int; let label: String; let depth: Int; let destination: PDFDestination? }
@@ -117,6 +107,7 @@ struct DocumentSidebar: View {
         func walk(_ node: PDFOutline, _ depth: Int) {
             guard rows.count < 600 else { return }
             for index in 0..<node.numberOfChildren {
+                guard rows.count < 600 else { break }
                 guard let child = node.child(at: index) else { continue }
                 rows.append(OutlineRow(id: rows.count, label: child.label ?? "Untitled section", depth: depth,
                                        destination: child.destination ?? (child.action as? PDFActionGoTo)?.destination))
@@ -137,7 +128,7 @@ struct DocumentSidebar: View {
             ScrollView {
                 LazyVStack(spacing: 0) {
                     ForEach(rows) { row in
-                        Button { if let destination = row.destination { workspace.pdfView?.go(to: destination) } } label: {
+                        Button { if let destination = row.destination { workspace.rememberPassage(); workspace.pdfView?.go(to: destination) } } label: {
                             Text(row.label).font(.system(size: 13)).foregroundStyle(FolioTheme.rowInk).lineLimit(2)
                                 .multilineTextAlignment(.leading)
                                 .padding(.leading, CGFloat(row.depth) * 12)
@@ -155,7 +146,23 @@ struct DocumentSidebar: View {
 private struct PageRow: View {
     @ObservedObject var workspace: Workspace
     let number: Int
-    let thumbnail: NSImage?
+    private static let cache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.countLimit = 256
+        cache.totalCostLimit = 16 * 1_024 * 1_024
+        return cache
+    }()
+
+    // Evaluate inside the lazy row body, rather than while constructing every row.
+    private var thumbnail: NSImage? {
+        guard let document = workspace.document, let page = document.page(at: number - 1) else { return nil }
+        let key = "\(workspace.activeID?.uuidString ?? "")-\(workspace.documentSessionID)-\(number)-\(page.rotation)-\(workspace.revision)" as NSString
+        if let cached = Self.cache.object(forKey: key) { return cached }
+        let image = page.thumbnail(of: CGSize(width: 70, height: 92), for: .cropBox)
+        let cost = image.representations.reduce(0) { $0 + max(0, $1.pixelsWide) * max(0, $1.pixelsHigh) * 4 }
+        Self.cache.setObject(image, forKey: key, cost: max(cost, 70 * 92 * 4))
+        return image
+    }
     @State private var hovering = false
 
     private var annotated: Bool {
@@ -177,7 +184,7 @@ private struct PageRow: View {
                     .clipShape(RoundedRectangle(cornerRadius: 2))
                     .overlay(RoundedRectangle(cornerRadius: 2).strokeBorder(FolioTheme.line, lineWidth: 1))
                     if annotated {
-                        RoundedRectangle(cornerRadius: 1).fill(Color(AnnotationPalette.web("yellow"))).frame(width: 9, height: 3)
+                        RoundedRectangle(cornerRadius: 1).fill(Color(AnnotationPalette.swatch("yellow"))).frame(width: 9, height: 3)
                             .padding(3).accessibilityHidden(true)
                     }
                 }
@@ -185,7 +192,7 @@ private struct PageRow: View {
                     .foregroundStyle(active ? FolioTheme.rowActiveInk : FolioTheme.rowInk)
                 Spacer(minLength: 0)
                 if workspace.activePaper?.starredPages.contains(number) == true {
-                    Image(systemName: "star.fill").font(.system(size: 10)).foregroundStyle(Color(AnnotationPalette.web("yellow")))
+                    Image(systemName: "star.fill").font(.system(size: 10)).foregroundStyle(Color(AnnotationPalette.swatch("yellow")))
                         .accessibilityLabel("Starred")
                 }
             }

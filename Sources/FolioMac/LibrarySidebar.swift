@@ -1,36 +1,52 @@
 import SwiftUI
 import FolioCore
 
-/// Left navigation panel in the web page-link style: flat panel colour, hairline edge, no system material.
+/// Native material sidebar with readable selected rows and opaque accessibility fallback.
 struct LibrarySidebar: View {
     @ObservedObject var workspace: Workspace
 
     var body: some View {
+        let counts = folderCounts
         VStack(alignment: .leading, spacing: 0) {
             FolioWordmark().padding(.horizontal, 18).padding(.top, 16).padding(.bottom, 16)
-            Button(action: workspace.choosePDF) {
-                Label("Import PDF", systemImage: "folder").font(.system(size: 13, weight: .medium))
+            Button(action: workspace.chooseFolder) {
+                Label("Open folder", systemImage: "folder").font(.system(size: 13, weight: .medium))
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
             .buttonStyle(FolioPrimaryButtonStyle()).padding(.horizontal, 15).disabled(workspace.repository == nil)
             ScrollView {
                 VStack(alignment: .leading, spacing: 4) {
-                    sectionLabel("Library")
-                    ForEach([LibrarySection.all, .opened, .insights]) { navigation($0) }
-                    sectionLabel("Saved work").padding(.top, 14)
-                    ForEach([LibrarySection.notes, .starred]) { navigation($0) }
-                    if let paper = workspace.activePaper {
-                        sectionLabel("In your reader").padding(.top, 14)
-                        SidebarRow(title: paper.title, symbol: "book.pages", count: nil, active: workspace.reading) {
-                            workspace.reading = true
+                    sectionLabel("Folders")
+                    ForEach(workspace.folders, id: \.self) { path in
+                        SidebarRow(title: URL(fileURLWithPath: path).lastPathComponent, symbol: "folder",
+                                   count: counts[path, default: 0],
+                                   active: workspace.selectedFolder == path && workspace.section == .all && !workspace.reading) {
+                            workspace.selectFolder(path)
+                        }
+                        .padding(.leading, CGFloat(workspace.folders.filter { path.hasPrefix($0 + "/") }.count) * 10)
+                        .help(path)
+                        .contextMenu {
+                            Button("Refresh folder") { workspace.openFolder(URL(fileURLWithPath: path)) }
                         }
                     }
+                    if workspace.folders.isEmpty {
+                        Text("Open a folder to browse its PDFs.").font(.system(size: 12)).foregroundStyle(FolioTheme.muted).padding(.horizontal, 10).padding(.vertical, 6)
+                    }
+                    sectionLabel("Quick access").padding(.top, 14)
+                    navigation(.opened)
+                    ForEach(Array(workspace.recentPapers.filter { $0.title != "A guide to reading research" }.prefix(5))) { paper in
+                        SidebarRow(title: paper.title, symbol: "doc.richtext", count: nil,
+                                   active: workspace.reading && workspace.activeID == paper.id) { workspace.open(paper) }
+                            .help("Resume \(paper.title)")
+                    }
+                    ForEach([LibrarySection.all, .insights]) { navigation($0) }
+                    sectionLabel("Saved work").padding(.top, 14)
+                    ForEach([LibrarySection.notes, .starred, .conversations]) { navigation($0) }
+
                 }.padding(.horizontal, 10).padding(.top, 18)
             }
             Rectangle().fill(FolioTheme.line).frame(height: 1).padding(.horizontal, 15)
             VStack(alignment: .leading, spacing: 4) {
-                SidebarRow(title: "Sample paper", symbol: "doc.text", count: nil, active: false, action: workspace.sample)
-                    .disabled(workspace.repository == nil)
                 SettingsLink { SidebarRowLabel(title: "Settings", symbol: "gearshape", count: nil, active: false, hovering: false) }
                     .buttonStyle(.plain)
                 Label("Stored on this Mac", systemImage: "internaldrive").font(.system(size: 11)).foregroundStyle(FolioTheme.muted)
@@ -38,12 +54,29 @@ struct LibrarySidebar: View {
             }.padding(10)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .background(FolioTheme.panelLeft.ignoresSafeArea())
-        .overlay(alignment: .trailing) { Rectangle().fill(FolioTheme.line).frame(width: 1).ignoresSafeArea() }
+        .folioSidebar()
+
+    }
+
+    private var folderCounts: [String: Int] {
+        let folders = Set(workspace.folders)
+        var counts: [String: Int] = [:]
+        for paper in workspace.papers {
+            guard let path = paper.folderPath else { continue }
+            counts[path, default: 0] += 1
+            var parent = URL(fileURLWithPath: path).deletingLastPathComponent()
+            while parent.path != path {
+                if folders.contains(parent.path) { counts[parent.path, default: 0] += 1 }
+                let next = parent.deletingLastPathComponent()
+                if next == parent { break }
+                parent = next
+            }
+        }
+        return counts
     }
 
     private func sectionLabel(_ text: String) -> some View {
-        Text(text.uppercased()).font(.system(size: 12, weight: .semibold)).tracking(1.6)
+        Text(text).font(.system(size: 12, weight: .semibold))
             .foregroundStyle(FolioTheme.sectionTitle).padding(.horizontal, 10).padding(.bottom, 4)
     }
 
@@ -51,7 +84,7 @@ struct LibrarySidebar: View {
         let count: Int? = item == .all ? workspace.papers.count
             : item == .starred ? workspace.papers.reduce(0) { $0 + $1.starredPages.count } : nil
         return SidebarRow(title: item.rawValue, symbol: item.symbol, count: count,
-                          active: workspace.section == item && !workspace.reading) {
+                          active: workspace.section == item && !workspace.reading && (item != .all || workspace.selectedFolder == nil)) {
             workspace.navigate(to: item)
         }
     }
@@ -62,7 +95,7 @@ private struct SidebarRowLabel: View {
     var body: some View {
         HStack(spacing: 9) {
             Image(systemName: symbol).font(.system(size: 13)).frame(width: 18)
-            Text(title).font(.system(size: 13)).lineLimit(1)
+            Text(title).font(.system(size: 14)).lineLimit(1)
             Spacer(minLength: 4)
             if let count {
                 Text("\(count)").font(.system(size: 12).monospacedDigit()).foregroundStyle(FolioTheme.badgeInk)
@@ -71,11 +104,9 @@ private struct SidebarRowLabel: View {
             }
         }
         .foregroundStyle(active ? FolioTheme.rowActiveInk : FolioTheme.rowInk)
-        .padding(.horizontal, 10).padding(.vertical, 8)
+        .padding(.horizontal, 10).padding(.vertical, 9)
         .background(active ? FolioTheme.rowActive : hovering ? FolioTheme.rowHover : .clear,
-                    in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 7, style: .continuous)
-            .strokeBorder(active ? FolioTheme.rowActiveLine : .clear))
+                    in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .contentShape(Rectangle())
     }
 }
@@ -90,23 +121,23 @@ private struct SidebarRow: View {
     }
 }
 
-/// Flat serif wordmark like the web brand: small book glyph and bold accent "folio."
+/// Folio keeps its editorial serif wordmark within the native navigation shell.
 struct FolioWordmark: View {
     var body: some View {
         HStack(spacing: 7) {
             Image(systemName: "book.closed").font(.system(size: 15, weight: .semibold))
-            Text("folio.").font(.custom("Georgia", size: 26).weight(.bold))
-        }.foregroundStyle(FolioTheme.accent).accessibilityElement(children: .combine).accessibilityLabel("Folio")
+            Text("folio.").font(.system(size: 24, weight: .bold, design: .rounded))
+        }.foregroundStyle(FolioTheme.ink).accessibilityElement(children: .combine).accessibilityLabel("Folio")
     }
 }
 
-/// Filled accent button matching the web primary button (accent bg, on-accent text, radius 7).
+/// Solid accent action with a contrasting label in either color mode.
 struct FolioPrimaryButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .padding(.horizontal, 12).padding(.vertical, 8)
+            .padding(.horizontal, 12).padding(.vertical, 9)
             .foregroundStyle(FolioTheme.onAccent)
-            .background(FolioTheme.accent.opacity(configuration.isPressed ? 0.85 : 1), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .background(FolioTheme.accent.opacity(configuration.isPressed ? 0.85 : 1), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 }
 

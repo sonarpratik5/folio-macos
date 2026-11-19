@@ -1,0 +1,9 @@
+# Current handoff
+
+## Efficient native PDF evidence — 2026-11-15
+
+- Request/status: make native AI reliable with enough opened-PDF context and efficient token use. Implemented compact question retrieval, long-selection boundaries, deictic page context, byte-bounded structured evidence/history and saved reading-page identity. Web repository untouched; all pre-existing dirty work preserved.
+- Owners: FolioCore AssistantModels/AssistantService/PaperLookup; FolioMac PaperAssistantView/AskPanel. Existing AssistantTests/PaperLookupTests/PaperAssistantTests expanded; ConceptGraphSelectionTests retains >40 candidates under the smaller budget to verify its cap. Source passage IDs/fingerprints and provider tool permissions retained. Structured evidence 40K UTF-8 bytes; history 32K bytes, oversized historical turns retain start/end with omission markers. No embeddings/background requests.
+- Fresh checks: focused 19/19; full host suite 114 tests (34 Mac + 80 core), zero failures, two opt-in skips. Separate live Codex synthetic chat + sourced overview 2/2 passed. Debug app packaged at .build/Folio.app, signed/deep-strict verified. Exact commands and restricted-run limits in docs/TESTING.md#efficient-pdf-evidence--2026-11-15. Context (6 routes/81 paths) and whitespace checks passed.
+- Limits: no fresh GUI interaction, live Claude/web/OpenReview, or long-paper answer-quality benchmark. Lexical retrieval can miss synonyms and unsegmented scripts; OCR is absent; sampled evidence cannot prove full-paper absence. No billing/token savings measurement. No user PDF/library/credential changes, installed-app replacement, commit/push/publish.
+- Prior checkpoint and concurrent startup/audit/dotenv links preserved in [archive](handoff-before-efficient-ai-2026-11-15.md). Next authorized action follows the human request.

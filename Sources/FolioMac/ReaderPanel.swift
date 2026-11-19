@@ -4,12 +4,13 @@ import FolioCore
 /// Sections of the reader's right panel: Notes, Ask, Reviews and Map. Overview lives on Insights,
 /// so AI tools open beside the PDF instead of in separate windows.
 enum ReaderPanel: String, CaseIterable, Identifiable {
-    case notes, ask, reviews, map
+    case notes, ask, insight, reviews, map
     var id: String { rawValue }
     var label: String {
         switch self {
         case .notes: "Notes"
         case .ask: "Ask AI"
+        case .insight: "Selection insights"
         case .reviews: "Peer reviews"
         case .map: "Concept map"
         }
@@ -18,6 +19,7 @@ enum ReaderPanel: String, CaseIterable, Identifiable {
         switch self {
         case .notes: "note.text"
         case .ask: "sparkles"
+        case .insight: "lightbulb"
         case .reviews: "text.bubble"
         case .map: "point.3.connected.trianglepath.dotted"
         }
@@ -25,6 +27,7 @@ enum ReaderPanel: String, CaseIterable, Identifiable {
     var shortcutHint: String? {
         switch self {
         case .ask: "⌘J"
+        case .insight: "I"
         case .reviews: "⌥⌘R"
         case .map: "⌥⌘M"
         case .notes: nil
@@ -45,10 +48,10 @@ struct AskRequest: Equatable {
 @MainActor
 final class PaperAIStore: ObservableObject {
     let paperID: UUID
-    let assistant = PaperAssistantModel()
+    let assistant: PaperAssistantModel
     let reviews = PaperReviewsModel()
     let concepts = PaperConceptGraphModel()
-    init(paperID: UUID) { self.paperID = paperID }
+    init(paperID: UUID, assistant: PaperAssistantModel? = nil) { self.paperID = paperID; self.assistant = assistant ?? PaperAssistantModel() }
     func cancelAll() { assistant.cancel(); reviews.cancel(); concepts.cancel() }
 }
 
@@ -65,10 +68,13 @@ struct PanelHeader<Trailing: View>: View {
                 else { Text(eyebrow.uppercased()).font(.system(size: 12)).tracking(1.7).foregroundStyle(FolioTheme.eyebrow) }
                 Spacer()
                 trailing()
-                Button { workspace.inspector = false } label: { Image(systemName: "xmark") }
+                Button {
+                    if workspace.panel == .insight { workspace.insightsMode = false; workspace.selectionInsight = nil }
+                    workspace.inspector = false
+                } label: { Image(systemName: "xmark") }
                     .help("Close panel").accessibilityLabel("Close panel")
             }.buttonStyle(ReaderIconStyle(size: 26))
-            Text(title).font(.system(size: 24, weight: .regular, design: .serif)).foregroundStyle(FolioTheme.panelTitle)
+            Text(title).font(FolioTheme.heading(22)).foregroundStyle(FolioTheme.panelTitle)
                 .accessibilityAddTraits(.isHeader)
         }
     }
@@ -84,19 +90,21 @@ extension PanelHeader where Trailing == EmptyView {
 struct ReaderPanelRail: View {
     @ObservedObject var workspace: Workspace
     var body: some View {
-        VStack(spacing: 6) {
-            ForEach(ReaderPanel.allCases) { section in
-                let active = workspace.inspector && workspace.panel == section
-                Button { workspace.toggle(section) } label: { Image(systemName: section.symbol) }
-                    .buttonStyle(ReaderIconStyle(active: active))
-                    .help(section.label + (section.shortcutHint.map { " (\($0))" } ?? ""))
-                    .accessibilityLabel(section.label)
-                    .accessibilityAddTraits(active ? .isSelected : [])
-            }
-            Spacer()
+        VStack(spacing: 0) {
+            VStack(spacing: 6) {
+                ForEach(ReaderPanel.allCases) { section in
+                    let active = section == .insight ? workspace.insightsMode : workspace.inspector && workspace.panel == section
+                    Button { workspace.toggle(section) } label: { Image(systemName: section.symbol) }
+                        .buttonStyle(ReaderIconStyle(active: active, size: 32))
+                        .help(section.label + (section.shortcutHint.map { " (\($0))" } ?? ""))
+                        .accessibilityLabel(section.label)
+                        .accessibilityAddTraits(active ? .isSelected : [])
+                }
+            }.padding(6).folioChrome(cornerRadius: 18)
+            Spacer(minLength: 0)
         }
-        .padding(.top, 12).frame(width: 44).frame(maxHeight: .infinity)
-        .background(FolioTheme.strip)
+        .padding(.horizontal, 6).padding(.top, 10).frame(width: 56).frame(maxHeight: .infinity)
+
     }
 }
 
@@ -112,6 +120,8 @@ extension Workspace {
         return store
     }
     func toggle(_ section: ReaderPanel) {
+        if section == .insight { chooseInsightsMode(); return }
+        insightsMode = false; selectionInsight = nil
         if inspector && panel == section { inspector = false } else { panel = section; inspector = true }
     }
 }
@@ -130,10 +140,14 @@ struct ProviderSwitch: View {
             }.pickerStyle(.inline)
             if provider == .claude && !claudeReady {
                 Divider()
-                Text("No Claude API key yet")
+                Text("Claude API key unavailable")
             }
-            Divider()
-            SettingsLink { Text(provider == .claude && !claudeReady ? "Add Claude API Key…" : "AI Settings…") }
+            if provider == .claude {
+                Divider()
+                Picker("Claude model", selection: $claudeModel) {
+                    ForEach(ClaudeKeyStore.models, id: \.id) { Text($0.name).tag($0.id) }
+                }.disabled(ProcessInfo.processInfo.environment["FOLIO_ASSISTANT_MODEL"] != nil)
+            }
         } label: {
             HStack(spacing: 4) {
                 Text("FOLIO AI · \(provider == .claude ? "CLAUDE" : "CODEX")").font(.system(size: 12)).tracking(1.7)
@@ -152,8 +166,8 @@ struct ProviderSwitch: View {
 
 extension ClaudeKeyStore {
     static let changed = Notification.Name("dev.folio.mac.claudeKeyChanged")
-    /// A Claude key is available from the launch environment or the Keychain.
+    /// A Claude key is available from the launch environment, local .env or the Keychain.
     static var isReady: Bool {
-        ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false || hasKey
+        ProcessInfo.processInfo.environment["ANTHROPIC_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false || dotEnvKey() != nil || hasKey
     }
 }

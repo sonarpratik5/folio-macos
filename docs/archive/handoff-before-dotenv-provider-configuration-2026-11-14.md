@@ -1,0 +1,9 @@
+# Current handoff
+
+## Paper entry and full Insights — 2026-11-14
+
+- Request/status: clicking a paper should first show reference-style Insights with abstract, contents and recent AI chats, then Read/Resume. Implemented in native app; web unchanged.
+- Changed: LibraryView row/grid title/thumbnail enter Insights. InsightsView now has paper header/thumbnail/metadata/Read/Resume, previous/next, Overview/Notes, full local abstract/key terms, embedded PDF outline, optional AI overview and recent saved chats with answer preview/date/question count, View all, confirmed deletion and New chat. One page scroller; narrow windows stack contents. PaperGlancePanel now contains only AI overview. Explicit Resume/Open/source actions stay direct. AssistantSurface.resumeChat selects the exact paper/thread without sending; new focused persistence/orchestration test.
+- Fresh checks: local-cache Swift test --filter PaperAssistantTests passes 4/4. Debug bundle build passes with host packaging access (sandbox iconutil attempt failed). CUA isolated generated sample in light appearance: paper-title click → full Insights; outline page 2 → PDF page 2; return → Resume on page 2. No Generate/Send, provider call or real paper used. Updated bundle .build/Folio.app; no installation/publication.
+- Limits: embedded outline required, text-layer abstract heuristics unchanged; no OCR. Populated-chat resume verified by test, not GUI. No fresh dark/narrow/older-macOS/live-provider check. Final context and whitespace checks pass; concurrent credential routing was completed during verification.
+- Preserved broad concurrent native dirty work and all web work. [Previous popup checkpoint](handoff-before-paper-entry-insights-2026-11-14.md) preserves selection-popup work and earlier archive links. Next authorized action: human feedback; no queued features.

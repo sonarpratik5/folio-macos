@@ -1,0 +1,189 @@
+{
+  "model": "scim-adapted",
+  "precision": "float16",
+  "labels": [
+    "background",
+    "method",
+    "objective",
+    "other",
+    "result"
+  ],
+  "checkpoint_sha256": "dd17e5b524e3efe554649b4d8c165ea39b23ebb70b9566d1fd97be62fc5ee820",
+  "verification": [
+    {
+      "max_logit_error": 0.0026608407497406006,
+      "sentences": [
+        "We investigate whether a smaller model can classify scientific sentences.",
+        "We train the model using labeled abstracts and full-text examples.",
+        "The adapted model improves classification accuracy on the evaluation set."
+      ],
+      "token_ids": [
+        [
+          2057,
+          8556,
+          3251,
+          1037,
+          3760,
+          2944,
+          2064,
+          26268,
+          4045,
+          11746,
+          1012
+        ],
+        [
+          2057,
+          3345,
+          1996,
+          2944,
+          2478,
+          12599,
+          29474,
+          1998,
+          2440,
+          1011,
+          3793,
+          4973,
+          1012
+        ],
+        [
+          1996,
+          5967,
+          2944,
+          24840,
+          5579,
+          10640,
+          2006,
+          1996,
+          9312,
+          2275,
+          1012
+        ]
+      ],
+      "scores": [
+        0.36091741919517517,
+        0.7411240935325623,
+        0.835350751876831
+      ],
+      "labels": [
+        1,
+        1,
+        4
+      ]
+    },
+    {
+      "max_logit_error": 0.0016024410724639893,
+      "sentences": [
+        "Prior studies have used large transformer models for this task.",
+        "Our objective is to reduce memory usage without sacrificing accuracy.",
+        "We introduce a compact encoder with a five-class classification head.",
+        "The experiment uses three held-out datasets and compares two baselines.",
+        "The results show a reduction in prediction errors.",
+        "Future work will evaluate additional domains."
+      ],
+      "token_ids": [
+        [
+          3188,
+          2913,
+          2031,
+          2109,
+          2312,
+          10938,
+          2121,
+          4275,
+          2005,
+          2023,
+          4708,
+          1012
+        ],
+        [
+          2256,
+          7863,
+          2003,
+          2000,
+          5547,
+          3638,
+          8192,
+          2302,
+          17266,
+          3089,
+          8873,
+          6129,
+          10640,
+          1012
+        ],
+        [
+          2057,
+          8970,
+          1037,
+          9233,
+          4372,
+          16044,
+          2099,
+          2007,
+          1037,
+          2274,
+          1011,
+          2465,
+          5579,
+          2132,
+          1012
+        ],
+        [
+          1996,
+          7551,
+          3594,
+          2093,
+          2218,
+          1011,
+          2041,
+          2951,
+          13462,
+          2015,
+          1998,
+          22963,
+          2048,
+          26163,
+          2015,
+          1012
+        ],
+        [
+          1996,
+          3463,
+          2265,
+          1037,
+          7312,
+          1999,
+          17547,
+          10697,
+          1012
+        ],
+        [
+          2925,
+          2147,
+          2097,
+          16157,
+          3176,
+          13100,
+          1012
+        ]
+      ],
+      "scores": [
+        0.8770856857299805,
+        0.8185096979141235,
+        0.6641448140144348,
+        0.6544812321662903,
+        0.8515577912330627,
+        0.8727190494537354
+      ],
+      "labels": [
+        0,
+        2,
+        1,
+        1,
+        4,
+        4
+      ]
+    }
+  ]
+}

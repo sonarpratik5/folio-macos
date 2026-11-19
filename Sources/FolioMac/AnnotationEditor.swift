@@ -53,11 +53,14 @@ struct AnnotationEditor: View {
                 Spacer()
                 Button("Done") { workspace.saveEditor(draft, text: text, size: size) }
                     .keyboardShortcut(.return, modifiers: .command)
-                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && images.isEmpty)
             }
         }.padding(16).frame(width: 320).onAppear { focused = true }
             .onChange(of: text) { _, value in workspace.pendingEditorText = value; workspace.persistNoteDraft(draft, text: value) }
             .onChange(of: size) { _, value in workspace.pendingEditorSize = value }
-            .onChange(of: images) { _, value in workspace.pendingEditorImages = value }
+            .onChange(of: images) { _, value in
+                workspace.pendingEditorImages = value
+                workspace.persistNoteDraft(draft, text: text)
+            }
     }
 }

@@ -4,6 +4,8 @@ import FolioCore
 
 struct PDFCanvas: NSViewRepresentable {
     @ObservedObject var workspace: Workspace
+    @Environment(\.colorScheme) private var colorScheme
+    @AppStorage("dimPDFInDarkMode") private var dimPDF = true
 
     func makeNSView(context: Context) -> ToolPDFView {
         let view = ToolPDFView()
@@ -30,8 +32,11 @@ struct PDFCanvas: NSViewRepresentable {
             workspace.reader.documentDidLoad(view)
             view.requestInitialFit()
         }
+        // A non-interactive tint changes display only; PDF content, annotations and exports retain their colors.
+        view.setDimming(colorScheme == .dark && dimPDF)
         view.refreshOverlay()
         context.coordinator.updateEditor(in: view)
+        context.coordinator.updateInsight(in: view)
     }
 
     static func dismantleNSView(_ view: ToolPDFView, coordinator: Coordinator) { coordinator.detach(); view.stopObserving() }
@@ -43,13 +48,47 @@ struct PDFCanvas: NSViewRepresentable {
         var restoring = false
         private var popover: NSPopover?
         private var draftID: UUID?
+        private(set) var insightPopover: NSPopover?
+        private var insightID: UUID?
         private var inline: InlineTextController?
         init(workspace: Workspace) { self.workspace = workspace }
         func attach(_ view: PDFView) {
             NotificationCenter.default.addObserver(self, selector: #selector(pageChanged), name: .PDFViewPageChanged, object: view)
             NotificationCenter.default.addObserver(self, selector: #selector(scaleChanged), name: .PDFViewScaleChanged, object: view)
         }
-        func detach() { NotificationCenter.default.removeObserver(self); popover?.close(); inline?.end(); inline = nil }
+        func detach() { NotificationCenter.default.removeObserver(self); popover?.close(); insightPopover?.close(); inline?.end(); inline = nil }
+        func updateInsight(in view: PDFView) {
+            guard let request = workspace.selectionInsight, workspace.reading, view.window != nil,
+                  let page = view.document?.page(at: request.page - 1) else {
+                insightPopover?.close(); insightPopover = nil; insightID = nil; return
+            }
+            guard request.id != insightID else { return }
+            // Clear ownership before closing so an old dismissal cannot cancel a new selection.
+            insightID = nil
+            insightPopover?.close()
+            let popup = NSPopover()
+            popup.behavior = .transient
+            popup.animates = false
+            popup.delegate = self
+            let host = NSHostingController(rootView: SelectionInsightPopup(workspace: workspace, request: request))
+            host.sizingOptions = [.preferredContentSize]
+            popup.contentViewController = host
+            insightPopover = popup; insightID = request.id
+            let rect = view.convert(request.bounds, from: page).intersection(view.bounds)
+            popup.show(relativeTo: rect.isEmpty ? CGRect(x: view.bounds.midX, y: view.bounds.midY, width: 1, height: 1) : rect,
+                       of: view, preferredEdge: .minY)
+        }
+        func popoverDidClose(_ notification: Notification) {
+            guard let popup = notification.object as? NSPopover, popup === insightPopover,
+                  let id = insightID else { return }
+            // Removing the host releases the task immediately, including an in-flight request.
+            popup.contentViewController = nil
+            insightPopover = nil; insightID = nil
+            Task { @MainActor [weak self] in
+                guard let self, self.workspace.selectionInsight?.id == id else { return }
+                self.workspace.selectionInsight = nil
+            }
+        }
         func updateEditor(in view: PDFView) {
             guard let draft = workspace.editor else {
                 popover?.close(); popover = nil; draftID = nil; inline?.end(); inline = nil; return
@@ -101,6 +140,21 @@ struct PDFCanvas: NSViewRepresentable {
 
 @MainActor
 final class ToolPDFView: PDFView {
+    private var dimmingView: NSView?
+    func setDimming(_ enabled: Bool) {
+        if enabled, dimmingView == nil {
+            let overlay = PDFDimmingView(frame: bounds)
+            overlay.autoresizingMask = [.width, .height]
+            overlay.wantsLayer = true
+            overlay.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.24).cgColor
+            addSubview(overlay, positioned: .above, relativeTo: nil)
+            dimmingView = overlay
+        }
+        if let dimmingView {
+            dimmingView.isHidden = !enabled
+            if enabled { addSubview(dimmingView, positioned: .above, relativeTo: nil) }
+        }
+    }
     weak var workspace: Workspace?
     private var needsInitialFit = false
     private var erased: [PDFAnnotation] = []
@@ -363,6 +417,7 @@ final class ToolPDFView: PDFView {
             if let selection = currentSelection, !(selection.string ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 workspace.beginNote(selection: selection)
             } else if let (page, point) = selectionAnchor { workspace.beginNote(on: page, at: point) }
+        case .select: workspace.explainFinishedSelection()
         default: break
         }
     }
@@ -404,11 +459,18 @@ final class ToolPDFView: PDFView {
 
     override func keyDown(with event: NSEvent) {
         guard let workspace else { super.keyDown(with: event); return }
+        if event.keyCode == 53, workspace.selectionInsight != nil {
+            workspace.selectionInsight = nil; return
+        }
         if event.modifierFlags.contains(.command) {
             if event.charactersIgnoringModifiers == "z" {
                 event.modifierFlags.contains(.shift) ? workspace.redoAnnotation() : workspace.undoAnnotation(); return
             }
             super.keyDown(with: event); return
+        }
+        if workspace.editor == nil, event.charactersIgnoringModifiers?.lowercased() == "i",
+           !event.modifierFlags.contains(.control), !event.modifierFlags.contains(.option) {
+            workspace.chooseInsightsMode(); return
         }
         if workspace.editor == nil, workspace.reader.handleKey(event) { return }
         if event.keyCode == 53 { cancelGesture(); workspace.select(nil); workspace.chooseTool(.select); return }
@@ -420,6 +482,12 @@ final class ToolPDFView: PDFView {
             workspace.chooseTool(tool); return
         }
         super.keyDown(with: event)
+    }
+    override func keyUp(with event: NSEvent) {
+        super.keyUp(with: event)
+        if event.modifierFlags.contains(.shift), [123, 124, 125, 126].contains(Int(event.keyCode)) {
+            workspace?.explainFinishedSelection()
+        }
     }
     @objc func paste(_ sender: Any?) {
         guard let image = NSImage(pasteboard: .general), let workspace, let page = currentPage else { return }
@@ -434,6 +502,16 @@ private final class AnnotationOverlay: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override func draw(_ dirtyRect: NSRect) {
         guard let view = pdfView else { return }
+        if let workspace = view.workspace, workspace.skimEnabled {
+            for mark in workspace.skimMarks where workspace.skimFacets.contains(mark.facet) && mark.page.document === view.document {
+                guard view.visiblePages.contains(where: { $0 === mark.page }) else { continue }
+                mark.facet.color.withAlphaComponent(0.18).setFill()
+                for rect in mark.rects {
+                    let converted = view.convert(rect, from: mark.page)
+                    if converted.intersects(bounds) { NSBezierPath(rect: converted).fill() }
+                }
+            }
+        }
         NSColor.systemRed.withAlphaComponent(0.25).setFill()
         for annotation in view.erasePreview {
             if let page = annotation.page { NSBezierPath(rect: view.convert(annotation.bounds, from: page)).fill() }
@@ -447,4 +525,9 @@ private final class AnnotationOverlay: NSView {
             NSColor.controlAccentColor.setFill(); NSBezierPath(rect: view.handleRect(for: selected)).fill()
         }
     }
+}
+
+@MainActor
+private final class PDFDimmingView: NSView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
 }

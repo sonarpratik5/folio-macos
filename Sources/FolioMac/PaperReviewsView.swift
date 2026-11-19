@@ -95,7 +95,7 @@ struct ReviewsPanel: View {
                         TextField("OpenReview link or forum ID", text: $forumInput).textFieldStyle(.roundedBorder)
                         Button("Load thread") { model.fetch(forumInput) }
                             .disabled(model.busy || model.paperText == nil || NativeReviewsClient.forumID(forumInput) == nil)
-                        Text("Find sends only the title to OpenReview. Load fetches that forum’s public thread. Nothing runs automatically. Restricted threads may need OPENREVIEW_TOKEN in Folio’s launch environment.")
+                        Text("Searches OpenReview by title or loads a public thread from a link.")
                             .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                     }.folioCard(padding: FolioSpace.m)
                     if model.busy {
@@ -147,7 +147,7 @@ struct ReviewsPanel: View {
                 Button(model.saved?.analysis == nil ? "Analyze reviews" : "Analyze again") { model.analyze(provider: provider) }
                     .buttonStyle(.borderedProminent).disabled(model.busy || !forum.hasReviews)
             }
-            Text("Analyze sends bounded paper passages and review excerpts to \(provider.name). Reviewer quotes and paper anchors are checked against the loaded sources. Criticism is a reviewer’s assessment, not proof of a defect.")
+            Text("Analyze shares paper and review excerpts with \(provider.name). Check assessments against the cited sources.")
                 .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if forum.limited { Text("This thread exceeds the extraction limit. Some review text is omitted.").font(.caption).foregroundStyle(.secondary) }
             if let result = model.saved?.analysis {

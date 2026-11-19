@@ -1,0 +1,10 @@
+# Current handoff
+
+## Folder-first navigation and Recent — 2026-11-14
+
+- Request/status: prioritize folders in the native sidebar, browse their PDFs and quickly resume recently visited papers. Implemented; web unchanged.
+- Changed: PaperRecord optional folderPath/sourcePath/visitedAt plus legacy visit inference; LibrarySnapshot optional folder list; LibraryRepository retains folders across metadata saves/import/removal. Workspace opens immediate-directory PDFs as managed copies, deduplicates refresh by source path, persists empty folders and sorts actual reader visits. Reader open resolves the current record before position restoration. LibrarySidebar uses Open folder, folder/count rows, Recent and five direct resume shortcuts. LibraryView scopes/searches folder contents and resumes Recent entries directly; folder/All PDFs entries keep Insights-first behavior. Folder refresh is explicit; originals untouched. File menu ⇧⌘O and toolbar include Open folder.
+- Fresh checks: focused LibraryRepositoryTests/ArxivAndOrganizingTests/PaperAssistantTests/WorkspaceEditingTests **22/22 pass**. Debug bundle built with host packaging access; local ad-hoc signature repaired/verified after full-suite build. CUA in temporary identified app/library: folder shows both generated PDFs, unread imports excluded from Recent, one reader visit creates one Recent entry + sidebar shortcut, Recent row resumes directly. No real paper or provider call.
+- Full suite attempted: Core 75, 2 skipped, 1 unrelated credential noninteractive-policy failure; Mac target signal 5 in corrupt-zoom render test after Vision/XPC errors. Full suite not green. See [evidence](../TESTING.md#folders-and-recent--2026-11-14). No fresh dark/narrow/grid check.
+- Limits: direct directory only, no watching/bookmarks; Refresh adds new paths without reconciling changed/deleted originals. Large imports remain synchronous. No install/publication/commit. Broad pre-existing native and web work preserved.
+- [Previous Insights/selection/credential checkpoint](handoff-before-folders-recent-2026-11-14.md) preserved. Next authorized action: human feedback; no queued feature.

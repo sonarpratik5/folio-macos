@@ -42,10 +42,10 @@ public struct ReviewForum: Codable, Equatable {
     private static func priority(_ note: ReviewNote) -> Int { ["meta": 0, "review": 1, "rebuttal": 2, "decision": 3][note.kind] ?? 4 }
 }
 
-/// Rejects redirects away from the two OpenReview API hosts, including redirects to HTTP.
+/// Rejects redirects outside the original HTTPS OpenReview API host.
 private final class OpenReviewRedirectGuard: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-        completionHandler(NativeReviewsClient.allowed(request.url) ? request : nil)
+        completionHandler(NativeReviewsClient.allowed(request.url) && request.url?.host == response.url?.host ? request : nil)
     }
 }
 public struct NativeReviewTransport: AssistantTransport {
@@ -67,13 +67,52 @@ public struct NativeReviewTransport: AssistantTransport {
     }
 }
 
+/// Login runs only inside an explicit search/load action. Tokens stay in memory.
+private actor OpenReviewAuthentication {
+    private var token: String?
+    private let username: String?
+    private let password: String?
+    init(token: String?, username: String?, password: String?) {
+        self.token = token; self.username = username; self.password = password
+    }
+    func bearer(transport: any AssistantTransport) async throws -> String? {
+        if let token { return token }
+        return try await refresh(transport: transport)
+    }
+    func refresh(transport: any AssistantTransport) async throws -> String? {
+        guard let username, let password else { return nil }
+        try Task.checkCancellation()
+        var request = URLRequest(url: URL(string: "https://api2.openreview.net/login")!)
+        request.httpMethod = "POST"; request.timeoutInterval = 20
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.httpBody = try JSONSerialization.data(withJSONObject: ["id": username, "password": password])
+        let data: Data; let status: Int
+        do { (data, status) = try await transport.send(request) }
+        catch { if Task.isCancelled || error is CancellationError { throw CancellationError() }; throw AssistantError.message("Could not reach OpenReview sign-in. Check your connection and try again.") }
+        try Task.checkCancellation()
+        guard (200..<300).contains(status), data.count <= 4_000_000,
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let value = object["token"] as? String, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AssistantError.message(status == 429 ? "OpenReview sign-in is rate limited. Try again later." : "OpenReview sign-in failed. Check OPENREVIEW_USERNAME / OPENREVIEW_PASSWORD in the native project’s .env.")
+        }
+        token = value
+        return value
+    }
+}
+
 public struct NativeReviewsClient {
     private let transport: any AssistantTransport
-    private let token: String?
-    public init(transport: any AssistantTransport = NativeReviewTransport(), environment: [String: String] = ProcessInfo.processInfo.environment) {
+    private let auth: OpenReviewAuthentication
+    public init(transport: any AssistantTransport = NativeReviewTransport(), environment: [String: String]? = nil) {
         self.transport = transport
-        let value = environment["OPENREVIEW_TOKEN"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        token = value?.isEmpty == false && value?.hasPrefix("paste-") == false ? value : nil
+        let launch = environment ?? ProcessInfo.processInfo.environment
+        func setting(_ name: String) -> String? {
+            let raw = launch[name] ?? (environment == nil ? LocalDotEnv.value(name) : nil)
+            let value = raw?.trimmingCharacters(in: .whitespacesAndNewlines)
+            return value?.isEmpty == false && value?.hasPrefix("paste-") == false ? value : nil
+        }
+        auth = OpenReviewAuthentication(token: setting("OPENREVIEW_TOKEN"), username: setting("OPENREVIEW_USERNAME"), password: setting("OPENREVIEW_PASSWORD"))
     }
     static func allowed(_ url: URL?) -> Bool {
         guard let url else { return false }
@@ -125,14 +164,21 @@ public struct NativeReviewsClient {
         components.queryItems = query.keys.sorted().map { URLQueryItem(name: $0, value: query[$0]) }
         var request = URLRequest(url: components.url!); request.timeoutInterval = 20
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+        if let token = try await auth.bearer(transport: transport) { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         let data: Data; let status: Int
-        do { (data, status) = try await transport.send(request) }
-        catch { if Task.isCancelled || error is CancellationError { throw CancellationError() }; throw AssistantError.message("Could not reach OpenReview. Check your connection and try again.") }
+        do {
+            var response = try await transport.send(request)
+            if [401, 403].contains(response.1), let fresh = try await auth.refresh(transport: transport) {
+                request.setValue("Bearer \(fresh)", forHTTPHeaderField: "Authorization")
+                response = try await transport.send(request)
+            }
+            (data, status) = response
+        }
+        catch { if Task.isCancelled || error is CancellationError { throw CancellationError() }; if let error = error as? AssistantError { throw error }; throw AssistantError.message("Could not reach OpenReview. Check your connection and try again.") }
         try Task.checkCancellation()
         if status == 404 { return [] }
         guard (200..<300).contains(status) else {
-            throw AssistantError.message([401, 403].contains(status) ? "OpenReview requires access to this thread. Set a valid OPENREVIEW_TOKEN in Folio’s launch environment, or open its public source in your browser." : status == 429 ? "OpenReview is rate limited. Try again later." : "OpenReview could not complete this request.")
+            throw AssistantError.message([401, 403].contains(status) ? "OpenReview requires access to this thread. Check OPENREVIEW_TOKEN or OPENREVIEW_USERNAME / OPENREVIEW_PASSWORD in the native project’s .env or launch environment, or open its public source in your browser." : status == 429 ? "OpenReview is rate limited. Try again later." : "OpenReview could not complete this request.")
         }
         guard data.count <= 4_000_000, let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let notes = value["notes"] as? [[String: Any]], notes.count <= 1000 else { throw AssistantError.message("OpenReview returned an invalid or oversized response.") }
         return notes

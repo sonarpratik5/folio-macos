@@ -6,27 +6,43 @@ import PDFKit
 import UniformTypeIdentifiers
 
 enum LibrarySection: String, CaseIterable, Identifiable {
-    case all = "All documents", opened = "Opened", notes = "Notes", starred = "Starred pages", insights = "Insights"
+    case all = "All PDFs", opened = "Recent", notes = "Notes", starred = "Starred pages", insights = "Insights", conversations = "Conversations"
     var id: String { rawValue }
     var symbol: String {
         switch self {
         case .all: "books.vertical"
-        case .opened: "book"
+        case .opened: "clock"
         case .notes: "note.text"
         case .starred: "star"
         case .insights: "lightbulb"
+        case .conversations: "bubble.left.and.bubble.right"
         }
     }
 }
 
 @MainActor
 final class Workspace: ObservableObject {
+    @Published private(set) var folders: [String] = []
+    @Published private(set) var selectedFolder: String?
     @Published private(set) var papers: [PaperRecord] = []
-    @Published private(set) var document: PDFDocument?
+    @Published private(set) var document: PDFDocument? { didSet { cachedNotes = nil; documentSessionID = UUID(); reader.documentDidChange() } }
+    private(set) var documentSessionID = UUID()
     @Published private(set) var activeID: UUID?
-    @Published var reading = false
+    @Published var reading = false {
+        didSet { if !reading { insightsMode = false; selectionInsight = nil; clearSkim() } }
+    }
+    @Published var insightsMode = false
+    @Published var selectionInsight: SelectionInsightRequest?
+    @Published var skimEnabled = false
+    @Published var skimLoading = false
+    @Published var skimError: String?
+    @Published var skimMarks: [SkimMark] = []
+    @Published var skimFacets = Set(SkimFacet.allCases)
+    var skimTask: Task<Void, Never>?
+    var skimRequest = UUID()
     @Published var section: LibrarySection = .all
     @Published var insightsPaperID: UUID?
+    @Published var passageHistory: [PDFDestination] = []
     @Published var page = 1
     @Published var inspector = false
     @Published var showDocumentNavigation = false
@@ -53,6 +69,8 @@ final class Workspace: ObservableObject {
     var writingUndo: [WritingPageOp] = []
     var writingRedo: [WritingPageOp] = []
     @Published var saveFailed = false
+    @Published var pendingWriting: (page: PDFPage, text: String)?
+    @Published var showWriting = false
     @Published var showFind = false
     /// Right panel section and the open paper's AI state (see ReaderPanel.swift).
     @Published var panel: ReaderPanel = .notes
@@ -61,14 +79,34 @@ final class Workspace: ObservableObject {
     @Published var errorMessage: String?
     @Published var libraryQuery = ""
     @Published var showArxivImport = false
-    @Published var revision = 0
+    @Published var revision = 0 { didSet { cachedNotes = nil; reader.contentDidChange() } }
     weak var pdfView: PDFView?
     private(set) lazy var reader = ReaderState(workspace: self)
     private(set) var editHistory: PDFEditHistory?
     private(set) var repository: LibraryRepository?
 
+    var recentPapers: [PaperRecord] {
+        papers.filter { $0.lastVisit != nil }.sorted {
+            if $0.lastVisit != $1.lastVisit { return $0.lastVisit! > $1.lastVisit! }
+            return $0.id.uuidString < $1.id.uuidString
+        }
+    }
+    var libraryPapers: [PaperRecord] {
+        if section == .opened { return recentPapers }
+        if section == .all, let selectedFolder { return papers.filter { $0.folderPath == selectedFolder || ($0.folderPath?.hasPrefix(selectedFolder.hasSuffix("/") ? selectedFolder : selectedFolder + "/") ?? false) } }
+        return papers
+    }
+
     var activePaper: PaperRecord? { papers.first { $0.id == activeID } }
-    var notes: [PaperNote] { document.map(PDFNotes.read) ?? [] }
+    // PDFKit page/annotation traversal is expensive during unrelated SwiftUI updates.
+    // Cache only the active document; edits and rollback replace annotation identities.
+    private var cachedNotes: [PaperNote]?
+    var notes: [PaperNote] {
+        if let cachedNotes { return cachedNotes }
+        let notes = document.map(PDFNotes.read) ?? []
+        cachedNotes = notes
+        return notes
+    }
     var isStarred: Bool { activePaper?.starredPages.contains(page) == true }
 
     init(libraryRoot: URL? = nil) {
@@ -83,11 +121,71 @@ final class Workspace: ObservableObject {
             } else { root = base.appendingPathComponent("FolioMac", isDirectory: true) }
             let repository = try LibraryRepository(root: root)
             papers = try repository.load()
+            folders = try repository.loadFolders()
             self.repository = repository
         } catch {
             // No replacement manifest is written after a failed load.
             errorMessage = "Could not open the local library. \(error.localizedDescription)"
         }
+    }
+
+    func chooseFolder() {
+        guard finishEditorIfNeeded(), repository != nil else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.message = "Open PDFs recursively, including subfolders, as private local copies. Reopen it to add new PDFs."
+        if panel.runModal() == .OK, let url = panel.url { openFolder(url) }
+    }
+
+    func selectFolder(_ path: String) {
+        guard finishEditorIfNeeded() else { return }
+        navigate(to: .all)
+        selectedFolder = path
+        libraryQuery = ""
+    }
+
+    func clearFolderSelection() { selectedFolder = nil }
+
+    /// Explicit folder scans only; previously imported files retain their managed edits and identity.
+    func openFolder(_ url: URL) {
+        guard finishEditorIfNeeded(), let repository else { return }
+        let scoped = url.startAccessingSecurityScopedResource()
+        defer { if scoped { url.stopAccessingSecurityScopedResource() } }
+        let path = url.standardizedFileURL.path
+        do {
+            var scanError: Error?
+            guard let scan = FileManager.default.enumerator(at: url, includingPropertiesForKeys: [.isRegularFileKey, .isSymbolicLinkKey, .isDirectoryKey], options: [.skipsHiddenFiles, .skipsPackageDescendants], errorHandler: { _, error in scanError = error; return true }) else { return }
+            var urls: [URL] = []
+            var discovered = Set([path])
+            for case let source as URL in scan {
+                let values = try source.resourceValues(forKeys: [.isRegularFileKey, .isSymbolicLinkKey, .isDirectoryKey])
+                if values.isSymbolicLink == true { scan.skipDescendants(); continue }
+                if values.isDirectory == true { discovered.insert(source.standardizedFileURL.path) }
+                if values.isRegularFile == true && source.pathExtension.lowercased() == "pdf" { urls.append(source) }
+            }
+            urls.sort { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
+            let next = Set(folders).union(discovered).sorted { $0.localizedStandardCompare($1) == .orderedAscending }
+            try repository.save(papers, folders: next)
+            folders = next
+            var failures: [String] = scanError.map { [$0.localizedDescription] } ?? []
+            var importedPaths = Set(papers.compactMap { record -> String? in
+                guard let folder = record.folderPath, let source = record.sourcePath else { return nil }
+                return folder + "\0" + source
+            })
+            for source in urls {
+                let path = source.deletingLastPathComponent().standardizedFileURL.path
+                let identity = path + "\0" + source.standardizedFileURL.path
+                if importedPaths.contains(identity) { continue }
+                do {
+                    papers.append(try repository.importPDF(from: source, existing: papers, folderPath: path))
+                    importedPaths.insert(identity)
+                }
+                catch { failures.append("\(source.lastPathComponent): \(error.localizedDescription)") }
+            }
+            selectFolder(path)
+            if !failures.isEmpty { errorMessage = "Some PDFs could not be imported.\n" + failures.joined(separator: "\n") }
+        } catch { errorMessage = "Could not open this folder. \(error.localizedDescription)" }
     }
 
     func choosePDF() {
@@ -111,7 +209,7 @@ final class Workspace: ObservableObject {
             do { papers.append(try repository.importPDF(from: url, existing: papers)) }
             catch { failures.append("\(url.lastPathComponent): \(error.localizedDescription)") }
         }
-        section = .all
+        navigate(to: .all)
         if !failures.isEmpty { errorMessage = "Some files were not imported.\n" + failures.joined(separator: "\n") }
     }
 
@@ -127,11 +225,18 @@ final class Workspace: ObservableObject {
     /// Removes the library entry and Folio's managed copy. The original file you imported is never touched.
     func removePaper(_ paper: PaperRecord) {
         guard let repository else { return }
+        if activeID == paper.id, !finishEditorIfNeeded() { return }
         do {
             let next = try repository.remove(paper.id, from: papers)
+            if aiStore?.paperID == paper.id { aiStore?.cancelAll(); aiStore = nil }
             if activeID == paper.id {
-                reading = false; document = nil; activeID = nil; editHistory = nil; editor = nil; selectedAnnotation = nil
+                editor = nil // clear the old paper's recovery draft before clearing its identity
+                pendingWriting = nil; askRequest = nil; passageHistory = []
+                writingUndo = []; writingRedo = []
+                showWriting = false; saveFailed = false; tool = .select; page = 1
+                reading = false; document = nil; activeID = nil; editHistory = nil; selectedAnnotation = nil
             }
+            if insightsPaperID == paper.id { insightsPaperID = nil }
             papers = next
         } catch { errorMessage = "Could not remove the paper. \(error.localizedDescription)" }
     }
@@ -154,6 +259,7 @@ final class Workspace: ObservableObject {
 
     func open(_ paper: PaperRecord, at target: Int? = nil) {
         guard finishEditorIfNeeded(), let repository else { return }
+        let paper = papers.first { $0.id == paper.id } ?? paper
         // Detach PDFKit's lazy file backing before atomically replacing the managed URL.
         // Keep the open document independent of subsequent managed-file replacements.
         guard let bytes = try? Data(contentsOf: repository.documentURL(for: paper.id)),
@@ -162,6 +268,8 @@ final class Workspace: ObservableObject {
             return
         }
         PDFEditing.prepare(next)
+        aiStore?.cancelAll(); aiStore = nil; askRequest = nil
+        clearSkim()
         selectedAnnotation = nil
         editor = nil
         tool = .select
@@ -170,27 +278,74 @@ final class Workspace: ObservableObject {
             if let reader = self?.reader { try reader.withOriginalRotation(saved) { try repository.saveDocument(saved, for: id) } }
             else { try repository.saveDocument(saved, for: id) }
         }
+        insightsMode = false; selectionInsight = nil
         activeID = paper.id
         document = next
+        passageHistory = []
         page = min(max(target ?? paper.currentPage, 1), next.pageCount)
         writingUndo = []; writingRedo = []
         reading = true
-        updateActive { $0.lastOpened = Date(); $0.currentPage = page }
+        updateActive { $0.lastOpened = Date(); $0.visitedAt = $0.lastOpened; $0.currentPage = page }
         restoreNoteDraft()
     }
 
     func showLibrary() { if finishEditorIfNeeded() { reading = false } }
 
     func go(to target: Int) {
+        guard finishEditorIfNeeded() else { return }
         guard let document else { return }
         let index = min(max(target, 1), document.pageCount) - 1
         guard let pdfPage = document.page(at: index) else { return }
+        rememberPassage()
         pdfView?.go(to: pdfPage)
         changedPage(index + 1)
     }
 
+    func rememberPassage() {
+        guard let destination = pdfView?.currentDestination else { return }
+        if let last = passageHistory.last, last.page === destination.page, abs(last.point.x - destination.point.x) < 1, abs(last.point.y - destination.point.y) < 1 { return }
+        passageHistory.append(destination)
+        if passageHistory.count > 80 { passageHistory.removeFirst() }
+    }
+    func returnToPassage() {
+        guard finishEditorIfNeeded(), let document else { return }
+        while let destination = passageHistory.popLast() {
+            guard let page = destination.page, document.index(for: page) != NSNotFound else { continue }
+            pdfView?.go(to: destination)
+            changedPage(document.index(for: page) + 1)
+            return
+        }
+    }
+
+    @discardableResult func flushWriting() -> Bool {
+        guard let pending = pendingWriting else { return true }
+        guard let document, document.index(for: pending.page) != NSNotFound else { return false }
+        let old = StudyCopy.writing(on: pending.page)
+        if (old?.contents ?? "") == pending.text { pendingWriting = nil; return true }
+        var add: [(PDFPage, PDFAnnotation)] = []
+        if !pending.text.isEmpty {
+            let note = PDFAnnotation(bounds: CGRect(x: 8, y: 8, width: 16, height: 16), forType: .text, withProperties: nil)
+            note.contents = pending.text
+            note.setValue("1", forAnnotationKey: StudyCopy.writingKey)
+            note.shouldDisplay = false; note.shouldPrint = false
+            add = [(pending.page, note)]
+        }
+        guard apply(add: add, remove: old.map { [(pending.page, $0)] } ?? [], name: "Edit Writing Below Page") else { return false }
+        pendingWriting = nil
+        return true
+    }
+
+    func toggleWriting() {
+        guard !showWriting || flushWriting() else { return }
+        showWriting.toggle()
+    }
+
     func changedPage(_ number: Int) {
-        guard number != page else { return }
+        guard let document, (1...document.pageCount).contains(number), number != page else { return }
+        guard flushWriting() else {
+            if let original = document.page(at: page - 1) { pdfView?.go(to: original) }
+            return
+        }
         page = number
         updateActive { $0.currentPage = number }
     }
@@ -211,14 +366,31 @@ final class Workspace: ObservableObject {
         catch { errorMessage = "Could not save library metadata. \(error.localizedDescription)" }
     }
 
+    /// Metadata and PDF must describe the same structure before publishing the new state.
+    func savePageStructure(_ document: PDFDocument, first: Int, delta: Int, goTo target: Int) throws {
+        guard let repository, let id = activeID, let index = papers.firstIndex(where: { $0.id == id }),
+              document === self.document else { throw LibraryRepository.RepositoryError.invalidRecord }
+        var next = papers
+        next[index].pageCount = document.pageCount
+        next[index].currentPage = min(max(1, target), document.pageCount)
+        next[index].starredPages = Set(next[index].starredPages.compactMap { n in
+            if delta > 0 { return n >= first ? n + 1 : n }
+            if n == first { return nil }
+            return n > first ? n - 1 : n
+        })
+        try reader.withOriginalRotation(document) { try repository.saveStructure(document, for: id, papers: next) }
+        papers = next
+    }
+
     var selectedColor: NSColor { AnnotationPalette.fill(markColor) }
     var textInk: NSColor { AnnotationPalette.ink(markColor) }
-    var canUndo: Bool { editHistory?.canUndo == true || !writingUndo.isEmpty }
+    var canUndo: Bool { pendingWriting != nil || editHistory?.canUndo == true || !writingUndo.isEmpty }
     var canRedo: Bool { editHistory?.canRedo == true || !writingRedo.isEmpty }
 
     func chooseTool(_ next: PDFTool) {
         guard finishEditorIfNeeded() else { return }
         selectedAnnotation = nil
+        insightsMode = false; selectionInsight = nil
         tool = next
         if next == .highlight || next == .underline { markSelection(next == .highlight ? .highlight : .underline) }
         if next == .note, let selection = pdfView?.currentSelection, !(selection.string ?? "").isEmpty {
@@ -231,7 +403,8 @@ final class Workspace: ObservableObject {
         guard let selection = pdfView?.currentSelection, let document else { return }
         let additions = PDFEditing.marks(for: selection, in: document, type: type, color: type == .underline ? AnnotationPalette.underline(markColor) : selectedColor)
         guard !additions.isEmpty else { return }
-        if apply(add: additions, remove: [], name: type == .highlight ? "Highlight" : "Underline") {
+        let replacement = PDFEditing.replacingHighlights(additions)
+        if apply(add: replacement.add, remove: replacement.remove, name: type == .highlight ? "Highlight" : "Underline") {
             pdfView?.clearSelection()
         }
     }
@@ -257,6 +430,7 @@ final class Workspace: ObservableObject {
     }
 
     private func replaceSelected(_ name: String, edit: (PDFAnnotation) -> Void) {
+        prepareAnnotationEdit()
         guard let selected = selectedAnnotation, let document else { return }
         let members = PDFEditing.members(of: selected, in: document)
         var additions: [(PDFPage, PDFAnnotation)] = []
@@ -286,6 +460,7 @@ final class Workspace: ObservableObject {
     }
 
     func move(_ annotation: PDFAnnotation, to bounds: CGRect) {
+        prepareAnnotationEdit()
         guard let page = annotation.page, ["Text", "FreeText", "Stamp"].contains(annotation.type ?? ""),
               let rect = PDFEditing.contained(bounds, in: page.bounds(for: .cropBox)), rect != annotation.bounds,
               let copy = PDFEditing.copy(annotation) else { return }
@@ -328,23 +503,39 @@ final class Workspace: ObservableObject {
 
     @discardableResult
     func finishEditorIfNeeded() -> Bool {
+        reader.flushViewSettings()
+        guard flushWriting() else { return false }
         guard let draft = editor else { return true }
-        if pendingEditorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        if pendingEditorText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && (draft.kind != .text || pendingEditorImages.isEmpty) {
             draft.original?.shouldDisplay = true
             // Emptying an existing text box deletes it (undoable); an empty new box simply disappears.
-            if draft.kind == .freeText, let original = draft.original { editor = nil; erase([original]) }
+            if draft.kind == .freeText, let original = draft.original, let document {
+                let members = PDFEditing.members(of: original, in: document)
+                guard !members.isEmpty else { return false }
+                if apply(add: [], remove: members, name: "Delete Text") { editor = nil }
+            }
             else { editor = nil }
         } else { saveEditor(draft, text: pendingEditorText, size: pendingEditorSize) }
         return editor == nil
     }
 
     func saveEditor(_ draft: AnnotationDraft, text: String, size: CGFloat) {
+        // A popover may retry with its captured draft after rollback replaced PDFKit objects.
+        // Use the live draft's restored target; never append a replacement for a detached original.
+        guard let current = editor, current.id == draft.id else { return }
+        let draft = current
         guard draft.page.document === document, let document else { editor = nil; return }
+        if let original = draft.original, original.page !== draft.page {
+            errorMessage = "The annotation changed while editing. Close this editor and select it again."
+            return
+        }
         let size = size.isFinite ? min(max(size, 8), 96) : 16
         let body = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !body.isEmpty else { return }
+        guard !body.isEmpty || (draft.kind == .text && !pendingEditorImages.isEmpty) else { return }
         draft.original?.shouldDisplay = true
-        if draft.original != nil, body == draft.text, draft.kind != .freeText || ((draft.original?.font?.pointSize ?? size) == size && draft.ink == nil && draft.bold == PDFEditing.isBold(draft.original?.font)) { editor = nil; return }
+        if draft.original != nil, body == draft.text,
+           (draft.kind != .text || pendingEditorImages == draft.original.map(PDFNotes.images)),
+           draft.kind != .freeText || ((draft.original?.font?.pointSize ?? size) == size && draft.ink == nil && draft.bold == PDFEditing.isBold(draft.original?.font)) { editor = nil; return }
         let annotation = draft.original.flatMap(PDFEditing.copy) ?? PDFAnnotation(bounds: draft.bounds, forType: draft.kind, withProperties: nil)
         annotation.contents = body
         annotation.userName = "Folio"
@@ -369,7 +560,8 @@ final class Workspace: ObservableObject {
             }
         }
         additions.append((draft.page, annotation))
-        if apply(add: additions, remove: draft.original.map { [(draft.page, $0)] } ?? [], name: draft.original == nil ? "Add \(draft.kind == .freeText ? "Text" : "Note")" : "Edit Annotation") {
+        let replacement = PDFEditing.replacingHighlights(additions)
+        if apply(add: replacement.add, remove: replacement.remove + (draft.original.map { [(draft.page, $0)] } ?? []), name: draft.original == nil ? "Add \(draft.kind == .freeText ? "Text" : "Note")" : "Edit Annotation") {
             editor = nil
             selectedAnnotation = annotation
             tool = .select
@@ -403,6 +595,7 @@ final class Workspace: ObservableObject {
 
     @discardableResult
     private func apply(add: [(PDFPage, PDFAnnotation)], remove: [(PDFPage, PDFAnnotation)], name: String) -> Bool {
+        prepareAnnotationEdit()
         guard let document, let editHistory, editHistory.document === document else { return false }
         var pages: [PDFPage] = []
         for (page, _) in add + remove where !pages.contains(where: { $0 === page }) { pages.append(page) }
@@ -436,12 +629,42 @@ final class Workspace: ObservableObject {
         pdfView?.setNeedsDisplay(pdfView?.bounds ?? .zero)
     }
     private func editFailed(_ error: Error) {
+        cachedNotes = nil
+        reader.contentDidChange()
         selectedAnnotation = nil
+        // History rollback installs independent snapshots, so the editor's old object is
+        // detached. Rebind uniquely to the restored before-state without changing draft ID
+        // or pending text/images; a retained popover can then retry safely.
+        if var draft = editor, let original = draft.original, original.page == nil {
+            let matches = draft.page.annotations.filter {
+                $0.type == original.type && $0.bounds == original.bounds && $0.contents == original.contents
+                    && PDFEditing.group(of: $0) == PDFEditing.group(of: original)
+            }
+            if matches.count == 1 {
+                draft.original = matches[0]
+                if draft.kind == .freeText, inlineText != nil { matches[0].shouldDisplay = false }
+                editor = draft
+            }
+        }
         saveFailed = true
         errorMessage = "Could not save this edit. Your previous PDF was kept. \(error.localizedDescription)"
     }
-    func undoAnnotation() { if undoWritingPage() { return }; do { try editHistory?.undo(); refreshEdits() } catch { editFailed(error) } }
-    func redoAnnotation() { if redoWritingPage() { return }; do { try editHistory?.redo(); refreshEdits() } catch { editFailed(error) } }
+    /// Vector text rendering temporarily hides PDFKit appearances. Restore only those
+    /// tracked flags before copying/snapshotting so history never persists display-only state.
+    private func prepareAnnotationEdit() { (pdfView as? ToolPDFView)?.restoreRotatedTexts() }
+
+    func undoAnnotation() {
+        guard flushWriting() else { return }
+        prepareAnnotationEdit()
+        if undoWritingPage() { return }
+        do { try editHistory?.undo(); refreshEdits() } catch { editFailed(error) }
+    }
+    func redoAnnotation() {
+        guard flushWriting() else { return }
+        prepareAnnotationEdit()
+        if redoWritingPage() { return }
+        do { try editHistory?.redo(); refreshEdits() } catch { editFailed(error) }
+    }
     func undo() {
         if let text = NSApp.keyWindow?.firstResponder as? NSTextView { text.undoManager?.undo() }
         else { undoAnnotation() }
@@ -451,22 +674,26 @@ final class Workspace: ObservableObject {
         else { redoAnnotation() }
     }
 
-    func exportCopy() {
+    func exportCopy(study: Bool = false) {
         guard finishEditorIfNeeded(), let document, let repository else { return }
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.pdf]
-        panel.nameFieldStringValue = (activePaper?.title ?? "Paper") + " — Folio.pdf"
+        panel.nameFieldStringValue = (activePaper?.title ?? "Paper") + (study ? " — Study Copy.pdf" : " — Folio.pdf")
         guard panel.runModal() == .OK, let destination = panel.url else { return }
-        guard !destination.standardizedFileURL.path.hasPrefix(repository.root.standardizedFileURL.path + "/") else {
+        guard repository.allowsExport(to: destination) else {
             errorMessage = "Choose a destination outside Folio’s managed library."
             return
         }
         do {
-            guard let data = reader.withOriginalRotation(document, { document.dataRepresentation() }) else { throw LibraryRepository.RepositoryError.encodingFailed }
+            let data = try reader.withOriginalRotation(document, { try StudyCopy.export(document, study: study, imageData: { name in
+                guard let id = self.activeID else { return nil }
+                return NoteImageStore(root: repository.root).data(name, paper: id)
+            }) })
             try data.write(to: destination, options: .atomic)
         } catch { errorMessage = "Export failed. \(error.localizedDescription)" }
     }
 
+    /// Synthetic fixture for the opt-in QA harness; never offered in the product UI.
     func sample() {
         let document = PDFDocument()
         let text = "A guide to reading research\n\nA focused space for your papers and ideas.\n\nAbstract\nResearch begins with a question. Read the abstract, identify the method, and check what evidence supports each claim. Keep your own notes beside the source.\n\n1. Read with a question\nChoose Highlight or Underline, then drag across this sentence. Add a note to keep a question for later.\n\n2. Keep the evidence close\nUse the outline or page controls to navigate. Star a page to return to it. Search the PDF with Command-F.\n\n3. Make it yours\nYour imported papers and annotations stay on this Mac. Export a PDF copy when you are ready to share."

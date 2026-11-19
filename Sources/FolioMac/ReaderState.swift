@@ -64,12 +64,48 @@ final class ReaderState: ObservableObject {
     @Published var focusPageTick = 0
     private var searchTask: Task<Void, Never>?
 
+    private final class SearchPageText {
+        let normalized: NormalizedSearchText
+        init(_ normalized: NormalizedSearchText) { self.normalized = normalized }
+    }
+    private let searchTextCache: NSCache<NSNumber, SearchPageText> = {
+        let cache = NSCache<NSNumber, SearchPageText>()
+        cache.countLimit = 256
+        cache.totalCostLimit = 16 * 1_024 * 1_024
+        return cache
+    }()
+
+    /// Text/annotation changes can replace PDFKit selection backing and original offsets.
+    func contentDidChange() {
+        searchTextCache.removeAllObjects()
+        resetSearch()
+        if !normalizedQuery.isEmpty { scheduleSearch() }
+    }
+
+    func documentDidChange() {
+        flushViewSettings()
+        ready = false
+        searchTextCache.removeAllObjects()
+        clearSearch()
+    }
+
+    private func normalizedText(on page: PDFPage, at index: Int) -> NormalizedSearchText {
+        let key = NSNumber(value: index)
+        if let cached = searchTextCache.object(forKey: key) { return cached.normalized }
+        let normalized = NormalizedSearchText(page.string ?? "")
+        // Two UTF-16 offset arrays, plus normalized String/NSString storage; estimated cost.
+        let cost = max(1, normalized.text.utf16.count * (2 * MemoryLayout<Int>.stride + 4))
+        searchTextCache.setObject(SearchPageText(normalized), forKey: key, cost: cost)
+        return normalized
+    }
+
     // MARK: View
     @Published private(set) var fit: ReaderFit = .page
     @Published private(set) var layout: ReaderLayout = .singleContinuous
     @Published private(set) var rotation = 0
     @Published private(set) var zoomPercent = 100
-    private var baseRotations: [Int] = []
+    // Page identity survives insertion/removal and writing-page Undo/Redo.
+    private var baseRotations: [PDFPage: Int] = [:]
     private var pendingZoom: Double?
     private var lastApplied: CGFloat = 0
     private var lastLayoutSize = CGSize.zero
@@ -77,6 +113,12 @@ final class ReaderState: ObservableObject {
     private var ready = false
     private var applying = false
     private var saveTask: Task<Void, Never>?
+    private struct PendingView {
+        let store: ReadingPositionStore
+        let id: UUID
+        let position: ReadingPosition
+    }
+    private var pendingViews: [UUID: PendingView] = [:]
     private var store: ReadingPositionStore?
     private var storeRoot: URL?
 
@@ -109,13 +151,15 @@ final class ReaderState: ObservableObject {
         var found: [PDFSelection] = []
         for index in 0..<document.pageCount {
             if Task.isCancelled { return }
-            if let page = document.page(at: index), let text = page.string, !text.isEmpty {
-                let normalized = NormalizedSearchText(text)
-                for range in normalized.matches(of: q) {
+            if let page = document.page(at: index) {
+                let normalized = normalizedText(on: page, at: index)
+                for (offset, range) in normalized.matches(of: q).enumerated() {
+                    if Task.isCancelled { return }
                     if let selection = page.selection(for: range) { found.append(selection) }
+                    if offset % 64 == 63 { await Task.yield() }
                 }
             }
-            if index % 6 == 5 { await Task.yield() }
+            await Task.yield()
         }
         guard !Task.isCancelled, workspace?.document === document else { return }
         results = found
@@ -136,8 +180,12 @@ final class ReaderState: ObservableObject {
 
     private func show(_ index: Int) {
         guard !results.isEmpty else { current = 0; paint(); return }
+        guard workspace?.finishEditorIfNeeded() != false else { return }
+        // Committing an editor can invalidate the search and schedule fresh selections.
+        guard !results.isEmpty else { return }
         current = (index + results.count) % results.count
         paint()
+        workspace?.rememberPassage()
         view?.go(to: results[current])
     }
 
@@ -183,7 +231,7 @@ final class ReaderState: ObservableObject {
         case .page: setScale(min((view.bounds.width - 32 - (across - 1) * 12) / (across * w), (view.bounds.height - 24) / h), in: view)
         case .actual: setScale(1, in: view)
         case .custom:
-            if let zoom = ReaderZoom.restored(pendingZoom) { setScale(zoom, in: view) }
+            if let zoom = ReaderZoom.restored(pendingZoom ?? Double(view.scaleFactor)) { setScale(zoom, in: view) }
             else { fit = .page; pendingZoom = nil; applyFit(view); return }
         }
         pendingZoom = nil
@@ -263,10 +311,22 @@ final class ReaderState: ObservableObject {
     }
 
     private func applyRotation(_ view: PDFView) {
-        guard let document = view.document, baseRotations.count == document.pageCount else { return }
-        for index in 0..<document.pageCount { document.page(at: index)?.rotation = (baseRotations[index] + rotation) % 360 }
+        guard let document = view.document else { return }
+        for index in 0..<document.pageCount {
+            guard let page = document.page(at: index) else { continue }
+            let original = baseRotations[page] ?? page.rotation
+            baseRotations[page] = original
+            page.rotation = (original + rotation) % 360
+        }
         view.layoutDocumentView()
         if let tool = view as? ToolPDFView { tool.restoreRotatedTexts(); tool.hideRotatedTexts() }
+    }
+
+    func pageStructureDidChange() {
+        contentDidChange()
+        guard let view else { return }
+        applyRotation(view)
+        if fit == .width || fit == .page { applyFit(view) }
     }
 
     /// Rotation is a view-only setting: write PDF bytes with the original page rotations.
@@ -275,10 +335,13 @@ final class ReaderState: ObservableObject {
         let tool = view as? ToolPDFView
         tool?.restoreRotatedTexts()
         defer { if tool?.document === document { tool?.hideRotatedTexts() } }
-        guard rotation != 0, baseRotations.count == document.pageCount else { return try body() }
-        let shown = (0..<document.pageCount).map { document.page(at: $0)?.rotation ?? 0 }
-        for index in 0..<document.pageCount { document.page(at: index)?.rotation = baseRotations[index] }
-        defer { for index in 0..<document.pageCount { document.page(at: index)?.rotation = shown[index] } }
+        guard rotation != 0 else { return try body() }
+        let shown = (0..<document.pageCount).compactMap { index -> (PDFPage, Int)? in
+            guard let page = document.page(at: index) else { return nil }
+            return (page, page.rotation)
+        }
+        for (page, _) in shown { page.rotation = baseRotations[page] ?? page.rotation }
+        defer { for (page, angle) in shown { page.rotation = angle } }
         return try body()
     }
 
@@ -314,8 +377,11 @@ final class ReaderState: ObservableObject {
     }
 
     func documentDidLoad(_ view: ToolPDFView) {
-        resetSearch(); query = ""
-        baseRotations = (0..<(view.document?.pageCount ?? 0)).map { view.document?.page(at: $0)?.rotation ?? 0 }
+        documentDidChange()
+        baseRotations = [:]
+        for index in 0..<(view.document?.pageCount ?? 0) {
+            if let page = view.document?.page(at: index) { baseRotations[page] = page.rotation }
+        }
         var saved = ReadingPosition()
         if let id = workspace?.activeID, let position = currentStore()?.position(for: id) { saved = position }
         fit = ReaderFit(rawValue: saved.fit) ?? .page
@@ -339,14 +405,31 @@ final class ReaderState: ObservableObject {
     }
 
     private func scheduleSave() {
+        guard ready, let workspace, let id = workspace.activeID, let view,
+              view.document === workspace.document,
+              ReaderZoom.restored(Double(view.scaleFactor)) != nil, let store = currentStore() else { return }
+        // Capture identity and values together, before a different paper can own the view.
+        pendingViews[id] = PendingView(store: store, id: id,
+            position: ReadingPosition(zoom: Double(view.scaleFactor), fit: fit.rawValue,
+                                      layout: layout.rawValue, rotation: rotation))
         saveTask?.cancel()
         saveTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: 500_000_000)
-            guard !Task.isCancelled, let self, self.ready, let id = self.workspace?.activeID, let view = self.view,
-                  ReaderZoom.restored(Double(view.scaleFactor)) != nil else { return }
-            let position = ReadingPosition(zoom: Double(view.scaleFactor), fit: self.fit.rawValue,
-                                           layout: self.layout.rawValue, rotation: self.rotation)
-            try? self.currentStore()?.set(position, for: id)
+            guard !Task.isCancelled else { return }
+            self?.flushViewSettings()
+        }
+    }
+
+    func flushViewSettings() {
+        saveTask?.cancel()
+        saveTask = nil
+        for (id, pending) in pendingViews {
+            do {
+                try pending.store.set(pending.position, for: pending.id)
+                pendingViews.removeValue(forKey: id)
+            } catch {
+                workspace?.errorMessage = "Could not save the reading view. Existing settings were kept. \(error.localizedDescription)"
+            }
         }
     }
 }
@@ -390,6 +473,7 @@ struct ReaderCommands: Commands {
         CommandMenu("Go") {
             Button("Library") { workspace.showLibrary() }.keyboardShortcut("l", modifiers: [.command, .shift])
             Divider()
+            Button("Return to Previous Passage", action: workspace.returnToPassage).keyboardShortcut("[", modifiers: [.command]).disabled(none || workspace.passageHistory.isEmpty)
             Button("Next Page") { reader.nextPage() }.keyboardShortcut(.downArrow, modifiers: [.command]).disabled(none)
             Button("Previous Page") { reader.previousPage() }.keyboardShortcut(.upArrow, modifiers: [.command]).disabled(none)
             Button("First Page") { reader.firstPage() }.keyboardShortcut(.upArrow, modifiers: [.command, .option]).disabled(none)

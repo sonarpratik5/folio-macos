@@ -166,7 +166,7 @@ public enum PDFEditing {
         if type == .text { copy.iconType = annotation.iconType }
         copy.border = annotation.border?.copy() as? PDFBorder
         if type == .underline { styleUnderline(copy) }
-        for key in [groupKey, quoteKey, fontSizeKey, inkKey, boldKey, PDFNotes.imagesKey] {
+        for key in [groupKey, quoteKey, fontSizeKey, inkKey, boldKey, PDFNotes.imagesKey, StudyCopy.writingKey, StudyCopy.embeddedImagesKey] {
             if let value = annotation.value(forAnnotationKey: key) { copy.setValue(value, forAnnotationKey: key) }
         }
         if type == .freeText { restoreTextStyle(copy) }
@@ -219,6 +219,65 @@ public enum PDFEditing {
         }
     }
 
+    /// Replace covered highlight geometry while retaining the uncovered pieces and written comments.
+    /// Call only when creating highlights, so unrelated annotation edits keep their layering.
+    public static func replacingHighlights(_ additions: [(PDFPage, PDFAnnotation)])
+        -> (add: [(PDFPage, PDFAnnotation)], remove: [(PDFPage, PDFAnnotation)]) {
+        var add = additions
+        var remove: [(PDFPage, PDFAnnotation)] = []
+        var visited = Set<ObjectIdentifier>()
+        for (page, _) in additions where visited.insert(ObjectIdentifier(page)).inserted {
+            let covers = additions.filter { $0.0 === page && $0.1.type == "Highlight" }.map { $0.1.bounds }
+            guard !covers.isEmpty else { continue }
+            for old in page.annotations where old.type == "Highlight" {
+                let points = old.quadrilateralPoints ?? []
+                var regions: [CGRect] = []
+                if points.count >= 4, points.count.isMultiple(of: 4) {
+                    for start in stride(from: 0, to: points.count, by: 4) {
+                        let quad = points[start..<start + 4].map(\.pointValue)
+                        let xs = quad.map(\.x), ys = quad.map(\.y)
+                        regions.append(CGRect(x: old.bounds.minX + xs.min()!, y: old.bounds.minY + ys.min()!,
+                                              width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!))
+                    }
+                } else { regions = [old.bounds] }
+                guard regions.contains(where: { region in covers.contains { region.intersects($0) } }) else { continue }
+                for cover in covers {
+                    regions = regions.flatMap { region -> [CGRect] in
+                        let overlap = region.intersection(cover)
+                        guard !overlap.isNull, overlap.width > 0, overlap.height > 0 else { return [region] }
+                        return [CGRect(x: region.minX, y: region.minY, width: overlap.minX - region.minX, height: region.height),
+                                CGRect(x: overlap.maxX, y: region.minY, width: region.maxX - overlap.maxX, height: region.height),
+                                CGRect(x: overlap.minX, y: region.minY, width: overlap.width, height: overlap.minY - region.minY),
+                                CGRect(x: overlap.minX, y: overlap.maxY, width: overlap.width, height: region.maxY - overlap.maxY)]
+                            .filter { $0.width > 0.01 && $0.height > 0.01 }
+                    }
+                }
+                let fragments = regions.compactMap { bounds -> PDFAnnotation? in
+                    guard let fragment = copy(old) else { return nil }
+                    fragment.removeValue(forAnnotationKey: .quadPoints)
+                    fragment.bounds = bounds
+                    fragment.contents = nil
+                    return fragment
+                }
+                // A comment must survive even when all its colored geometry is replaced.
+                if let body = old.contents, !body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    if let first = fragments.first { first.contents = body }
+                    else {
+                        let note = PDFAnnotation(bounds: old.bounds, forType: .text, withProperties: nil)
+                        note.contents = body; note.color = old.color; note.userName = old.userName
+                        for key in [groupKey, quoteKey, PDFNotes.imagesKey] {
+                            if let value = old.value(forAnnotationKey: key) { note.setValue(value, forAnnotationKey: key) }
+                        }
+                        add.append((page, note))
+                    }
+                }
+                remove.append((page, old))
+                add.append(contentsOf: fragments.map { (page, $0) })
+            }
+        }
+        return (add, remove)
+    }
+
     public static func hit(at point: CGPoint, on page: PDFPage, tolerance: CGFloat = 2) -> PDFAnnotation? {
         page.annotations.reversed().first { editable($0) && ($0.shouldDisplay || $0.type == "FreeText") && $0.bounds.insetBy(dx: -tolerance, dy: -tolerance).contains(point) }
     }
@@ -258,6 +317,8 @@ public final class PDFEditHistory {
     public var canRedo: Bool { !future.isEmpty }
     public var undoName: String { past.last?.name ?? "" }
     public var redoName: String { future.last?.name ?? "" }
+    /// A successful structural edit starts a new history branch too.
+    public func discardRedo() { future.removeAll() }
     public init(document: PDFDocument, save: @escaping (PDFDocument) throws -> Void) {
         self.document = document; self.save = save
     }

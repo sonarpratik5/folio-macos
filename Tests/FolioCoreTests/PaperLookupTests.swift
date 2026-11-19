@@ -23,6 +23,14 @@ final class PaperLookupTests: XCTestCase {
         XCTAssertEqual(hits.first?["text"] as? String, "Appendix: baseline ablation evidence.")
     }
 
+    func testNaturalQuestionIgnoresBoilerplateAndSubstringFalseMatches() throws {
+        let paper = try PaperLookup(pages: ["What is the classification of these methods?", "Cats have a distinct ablation baseline.", "The baseline is ordinary."], truncated: [false, false, false])
+        XCTAssertEqual(paper.search("What is the cat?").count, 0)
+        XCTAssertEqual(paper.search("What is the ablation baseline?").first?.page, 2)
+        XCTAssertTrue(paper.search("Explain this to me please").isEmpty)
+        XCTAssertEqual(paper.search("ablation baseline").map(\.page), [2, 3])
+    }
+
     func testRejectsUnscopedArgumentsAndMalformedCorpus() throws {
         XCTAssertThrowsError(try PaperLookup(pages: ["text"], truncated: []))
         XCTAssertThrowsError(try PaperLookup(pages: [String(repeating: "a", count: PaperLookup.maximumBytes)], truncated: [false]))

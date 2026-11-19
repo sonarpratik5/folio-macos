@@ -30,6 +30,42 @@ final class NativeReviewTests: XCTestCase {
         return root
     }
 
+    func testUsernamePasswordLoginAndSessionReuse() async throws {
+        let transport = ReviewFakeTransport(responses: [(Data(#"{"token":"session-token"}"#.utf8), 200), (try response(notes: rawForum()), 200), (try response(notes: rawForum()), 200)])
+        let client = NativeReviewsClient(transport: transport, environment: ["OPENREVIEW_USERNAME": "fixture-user", "OPENREVIEW_PASSWORD": "fixture-password"])
+        _ = try await client.forum(forumID)
+        _ = try await client.forum(forumID)
+        let requests = await transport.requests
+        XCTAssertEqual(requests.count, 3)
+        XCTAssertEqual(requests[0].url?.absoluteString, "https://api2.openreview.net/login")
+        XCTAssertEqual(requests[0].httpMethod, "POST")
+        let body = try XCTUnwrap(try JSONSerialization.jsonObject(with: requests[0].httpBody!) as? [String: String])
+        XCTAssertEqual(body, ["id": "fixture-user", "password": "fixture-password"])
+        XCTAssertTrue(requests.dropFirst().allSatisfy { $0.value(forHTTPHeaderField: "Authorization") == "Bearer session-token" && $0.httpBody == nil })
+    }
+    func testRejectedTokenLogsInAndRetriesOnce() async throws {
+        let transport = ReviewFakeTransport(responses: [(Data(), 401), (Data(#"{"token":"renewed-token"}"#.utf8), 200), (try response(notes: rawForum()), 200)])
+        let client = NativeReviewsClient(transport: transport, environment: ["OPENREVIEW_TOKEN": "expired-token", "OPENREVIEW_USERNAME": "fixture-user", "OPENREVIEW_PASSWORD": "fixture-password"])
+        _ = try await client.forum(forumID)
+        let requests = await transport.requests
+        XCTAssertEqual(requests.count, 3)
+        XCTAssertEqual(requests[0].value(forHTTPHeaderField: "Authorization"), "Bearer expired-token")
+        XCTAssertEqual(requests[1].url?.path, "/login")
+        XCTAssertEqual(requests[2].value(forHTTPHeaderField: "Authorization"), "Bearer renewed-token")
+    }
+    func testLoginFailureRedactsCredentialsAndRawResponse() async throws {
+        let transport = ReviewFakeTransport(responses: [(Data(#"{"message":"fixture-password private diagnostic"}"#.utf8), 401)])
+        let client = NativeReviewsClient(transport: transport, environment: ["OPENREVIEW_USERNAME": "fixture-user", "OPENREVIEW_PASSWORD": "fixture-password"])
+        do { _ = try await client.forum(forumID); XCTFail("Expected failed login") }
+        catch {
+            XCTAssertTrue(error.localizedDescription.contains("sign-in failed"))
+            XCTAssertFalse(error.localizedDescription.contains("fixture-password"))
+            XCTAssertFalse(error.localizedDescription.contains("private diagnostic"))
+        }
+        let requests = await transport.requests
+        XCTAssertEqual(requests.count, 1)
+    }
+
     func testForumParsingSourceAllowlistAndCandidateRanking() {
         XCTAssertEqual(NativeReviewsClient.forumID("https://openreview.net/forum?id=Forum_123"), forumID)
         XCTAssertEqual(NativeReviewsClient.forumID(forumID), forumID)

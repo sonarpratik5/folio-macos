@@ -45,7 +45,7 @@ struct AskPanel: View {
             if let error = model.error { errorBanner(error) }
             else if let attempt = model.retry, !model.busy { stoppedBanner(attempt) }
             FolioHairline()
-            composer.padding(12)
+            composer.padding(12).fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(FolioTheme.panelRight)
@@ -76,12 +76,21 @@ struct AskPanel: View {
     // MARK: Header
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            PanelHeader(workspace: workspace, eyebrow: "Folio AI", title: "Ask") {
+            HStack(spacing: 8) {
+                ProviderSwitch()
+                Spacer(minLength: 0)
+                Button { workspace.inspector = false } label: { Image(systemName: "xmark") }
+                    .buttonStyle(ReaderIconStyle(size: 26)).help("Close panel").accessibilityLabel("Close panel")
+            }
+            HStack(spacing: 4) {
+                Text("Ask").font(FolioTheme.heading(22)).foregroundStyle(FolioTheme.panelTitle)
+                    .accessibilityAddTraits(.isHeader)
+                Spacer(minLength: 8)
                 chatsMenu
                 Button { model.newThread(); composerFocused = true } label: { Image(systemName: "square.and.pencil") }
                     .help("New chat").accessibilityLabel("New chat").disabled(!ready)
                 optionsMenu
-            }
+            }.buttonStyle(ReaderIconStyle(size: 26))
             if let thread = model.threads?.active, !thread.turns.isEmpty {
                 Text(thread.title).font(.caption).foregroundStyle(FolioTheme.muted).lineLimit(1)
             }
@@ -108,10 +117,9 @@ struct AskPanel: View {
     private var optionsMenu: some View {
         Menu {
             Toggle("Simple Technical English", isOn: $simplified)
-            SettingsLink { Text("AI Settings…") }
         } label: { Image(systemName: "slider.horizontal.3") }
             .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize().frame(width: 26, height: 26)
-            .help("Answer style and AI settings").accessibilityLabel("AI options").disabled(model.busy)
+            .help("Answer style").accessibilityLabel("AI options").disabled(model.busy)
     }
 
     // MARK: Messages
@@ -126,12 +134,16 @@ struct AskPanel: View {
                         VStack(alignment: .leading, spacing: 6) {
                             if model.streaming.isEmpty {
                                 HStack(spacing: 8) { ProgressView().controlSize(.small); Text(model.progress).font(.callout).foregroundStyle(FolioTheme.muted) }
-                            } else { AssistantRichView(text: model.streaming, pageCount: paper.pageCount, onPage: openPage) }
+                            } else {
+                                AssistantRichView(text: model.streaming, pageCount: paper.pageCount, onPage: openPage)
+                                    .font(.system(size: 14)).lineSpacing(3)
+                            }
                         }.id("streaming")
                     }
                     Color.clear.frame(height: 1).id("end")
                 }.padding(16)
             }
+            .onAppear { if !model.activeTurns.isEmpty { proxy.scrollTo("end", anchor: .bottom) } }
             .onChange(of: model.activeTurns.count) { _, _ in withAnimation { proxy.scrollTo("end", anchor: .bottom) } }
             .onChange(of: model.streaming) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
             .onChange(of: model.pendingQuestion) { _, _ in proxy.scrollTo("end", anchor: .bottom) }
@@ -145,8 +157,7 @@ struct AskPanel: View {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "key").foregroundStyle(FolioTheme.warning)
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Claude API needs your key. It stays in this Mac’s Keychain.").font(.callout).fixedSize(horizontal: false, vertical: true)
-                        SettingsLink { Text("Add Claude API Key…") }.controlSize(.small)
+                        Text("Claude API key unavailable. Check the configured environment or choose Codex CLI.").font(.callout).fixedSize(horizontal: false, vertical: true)
                     }
                 }.padding(10).frame(maxWidth: .infinity, alignment: .leading)
                     .background(FolioTheme.warning.opacity(0.1), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
@@ -172,12 +183,16 @@ struct AskPanel: View {
             let parts = AskPanel.split(turn.content)
             userBubble(parts.question, passage: parts.passage)
         } else {
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 8) {
                 AssistantRichView(text: turn.content, pageCount: paper.pageCount, onPage: openPage)
+                    .font(.system(size: 14)).lineSpacing(3)
                 HStack {
-                    Spacer()
-                    Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(turn.content, forType: .string) } label: { Image(systemName: "doc.on.doc") }
-                        .buttonStyle(ReaderIconStyle(size: 22)).help("Copy answer").accessibilityLabel("Copy answer")
+                    Button { NSPasteboard.general.clearContents(); NSPasteboard.general.setString(turn.content, forType: .string) } label: {
+                        Label("Copy", systemImage: "doc.on.doc").font(.caption).padding(.horizontal, 6).frame(height: 28)
+                    }
+                    .buttonStyle(.plain).foregroundStyle(FolioTheme.muted)
+                    .help("Copy answer").accessibilityLabel("Copy answer")
+                    Spacer(minLength: 0)
                 }
             }.id(turn.id)
         }
@@ -189,12 +204,13 @@ struct AskPanel: View {
                     .overlay(alignment: .leading) { Rectangle().fill(FolioTheme.accent.opacity(0.5)).frame(width: 2) }
                     .background(FolioTheme.accent.opacity(0.06), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
             }
-            Text(text).textSelection(.enabled).padding(.horizontal, 11).padding(.vertical, 8)
+            Text(text).font(.system(size: 14)).textSelection(.enabled).padding(.horizontal, 12).padding(.vertical, 9)
                 .background(FolioTheme.accent.opacity(0.13), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }.frame(maxWidth: .infinity, alignment: .trailing).padding(.leading, 28)
     }
     /// Stored user turns carry their passage inline; show it as a quote above the question.
     static func split(_ content: String) -> (passage: String?, question: String) {
+        let content = content.replacingOccurrences(of: #"^\[Reading page [0-9]+ of [0-9]+\]\n"#, with: "", options: .regularExpression)
         guard content.hasPrefix("Selected passage (p."), let range = content.range(of: "\n\n", options: .backwards), let colon = content.firstIndex(of: "\n") else { return (nil, content) }
         let head = String(content[..<colon]).replacingOccurrences(of: "Selected passage ", with: "").dropLast()
         let passage = String(content[content.index(after: colon)..<range.lowerBound])
@@ -236,20 +252,36 @@ struct AskPanel: View {
                     .controlSize(.small).disabled(!ready)
             }
             HStack(alignment: .bottom, spacing: 8) {
-                TextField(passage == nil ? "Ask about this paper…" : "Ask about the passage…", text: $question, axis: .vertical)
-                    .lineLimit(1...6).textFieldStyle(.plain).focused($composerFocused)
-                    .padding(.horizontal, 10).padding(.vertical, 8)
-                    .background(FolioTheme.field, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                TextField("Question", text: $question,
+                          prompt: Text(passage == nil ? "Ask about this paper…" : "Ask about the passage…").foregroundStyle(FolioTheme.muted), axis: .vertical)
+                    .lineLimit(3...6).textFieldStyle(.plain).focused($composerFocused)
+                    .font(.system(size: 14)).foregroundStyle(FolioTheme.ink)
+                    .padding(.leading, 12).padding(.vertical, 12)
+                    .accessibilityLabel("Question about this paper")
                     .onSubmit(sendTyped).disabled(model.paper == nil)
                 if model.busy {
-                    Button { model.cancel() } label: { Image(systemName: "stop.circle.fill").font(.system(size: 22)) }
+                    Button { model.cancel() } label: {
+                        Image(systemName: "stop.fill").font(.system(size: 12, weight: .semibold)).frame(width: 32, height: 32)
+                            .foregroundStyle(FolioTheme.onAccent).background(FolioTheme.accent, in: Circle())
+                    }
                         .buttonStyle(.plain).foregroundStyle(FolioTheme.accent).keyboardShortcut(".", modifiers: [.command])
                         .help("Stop (⌘.)").accessibilityLabel("Stop answer")
+                        .padding(.trailing, 6).padding(.vertical, 6)
                 } else {
-                    Button(action: sendTyped) { Image(systemName: "arrow.up.circle.fill").font(.system(size: 22)) }
-                        .buttonStyle(.plain).foregroundStyle(canSend ? FolioTheme.accent : FolioTheme.muted.opacity(0.5))
+                    Button(action: sendTyped) {
+                        Image(systemName: "arrow.up").font(.system(size: 14, weight: .semibold)).frame(width: 32, height: 32)
+                            .foregroundStyle(canSend ? FolioTheme.onAccent : FolioTheme.muted)
+                            .background(canSend ? FolioTheme.accent : FolioTheme.line, in: Circle())
+                    }
+                        .buttonStyle(.plain)
                         .disabled(!canSend).help("Send (Return)").accessibilityLabel("Send question")
+                        .padding(.trailing, 6).padding(.vertical, 6)
                 }
+            }
+            .background(FolioTheme.field, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .strokeBorder(composerFocused ? FolioTheme.accent : FolioTheme.fieldLine, lineWidth: 1)
             }
         }
     }

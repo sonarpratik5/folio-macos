@@ -65,19 +65,8 @@ struct NoteImageStrip: View {
     }
 }
 
-/// A highlight or underline, merged across the lines of one selection.
-private struct MarkItem: Identifiable {
-    let id: String
-    let page: Int
-    let kind: String
-    let quote: String
-    let color: NSColor
-    let annotation: PDFAnnotation
-}
-
 struct NotesInspector: View {
     @ObservedObject var workspace: Workspace
-    @State private var tab = "notes"
     @State private var query = ""
     @State private var colorFilter: String?
     @State private var editingID: String?
@@ -86,7 +75,7 @@ struct NotesInspector: View {
     @State private var deletedAt: Date?
     @State private var selectionText = ""
 
-    private static let colors: [(String, NSColor)] = AnnotationPalette.names.map { ($0, AnnotationPalette.web($0)) }
+    private static let colors: [(String, NSColor)] = AnnotationPalette.names.map { ($0, AnnotationPalette.swatch($0)) }
 
     private var all: [PaperNote] { _ = workspace.revision; return workspace.notes }
     private var shown: [PaperNote] {
@@ -96,54 +85,23 @@ struct NotesInspector: View {
         colorFilter == nil || AnnotationPalette.name(for: note.color) == colorFilter
     }
 
-    private var marks: [MarkItem] {
-        _ = workspace.revision
-        guard let document = workspace.document else { return [] }
-        var seen = Set<String>(), items: [MarkItem] = []
-        for index in 0..<document.pageCount {
-            guard let page = document.page(at: index) else { continue }
-            for (offset, annotation) in page.annotations.enumerated() where PDFEditing.editable(annotation) {
-                let type = annotation.type ?? ""
-                guard type == "Highlight" || type == "Underline" else { continue }
-                let group = PDFEditing.group(of: annotation) ?? "\(index)-\(offset)"
-                guard seen.insert(group).inserted else { continue }
-                let members = PDFEditing.members(of: annotation, in: document)
-                let text = (members.isEmpty ? [(page, annotation)] : members)
-                    .compactMap { $0.0.selection(for: $0.1.bounds)?.string?.trimmingCharacters(in: .whitespacesAndNewlines) }
-                    .filter { !$0.isEmpty }.joined(separator: " ")
-                items.append(MarkItem(id: group, page: index + 1, kind: type, quote: text, color: annotation.color, annotation: annotation))
-            }
-        }
-        return items
-    }
-    private var shownMarks: [MarkItem] {
-        let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        return marks.filter { item in
-            (q.isEmpty || item.quote.localizedCaseInsensitiveContains(q) || "page \(item.page)".localizedCaseInsensitiveContains(q))
-                && (colorFilter == nil || AnnotationPalette.name(for: item.color) == colorFilter)
-        }
-    }
-
     var body: some View {
-        let markList = marks
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .firstTextBaseline) {
-                    Text("ANNOTATIONS").font(.system(size: 12)).tracking(1.7).foregroundStyle(FolioTheme.eyebrow)
+                    Text("PDF NOTES").font(.system(size: 12)).tracking(1.7).foregroundStyle(FolioTheme.eyebrow)
                     Spacer()
                     Button { workspace.beginNote(selection: workspace.pdfView?.currentSelection) } label: { Image(systemName: "plus") }
                         .help("Add note").accessibilityLabel("Add note")
                     Button { workspace.inspector = false } label: { Image(systemName: "xmark") }
                         .help("Close notes").accessibilityLabel("Close notes")
                 }.buttonStyle(ReaderIconStyle(size: 26))
-                Text("Notes").font(.system(size: 24, weight: .regular, design: .serif)).foregroundStyle(FolioTheme.panelTitle)
+                Text("Notes").font(FolioTheme.heading(22)).foregroundStyle(FolioTheme.panelTitle)
                     .accessibilityAddTraits(.isHeader)
             }
-            FolioUnderlineTabs(items: [.init(id: "notes", title: "Notes", count: all.count),
-                                       .init(id: "highlights", title: "Highlights", count: markList.count)], selection: $tab)
             if workspace.pdfView != nil { selectionCard }
-            if !all.isEmpty || !markList.isEmpty { filterBar }
-            content(markList)
+            if !all.isEmpty { filterBar }
+            content
             if deletedAt != nil {
                 HStack {
                     Text("Note deleted").font(.callout)
@@ -155,13 +113,12 @@ struct NotesInspector: View {
         .padding(.horizontal, 16).padding(.top, 18).padding(.bottom, 12)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(FolioTheme.panelRight)
-        .onReceive(NotificationCenter.default.publisher(for: QAHarness.rightTabName)) { if let value = $0.object as? String { tab = value } }
     }
 
     private var filterBar: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass").foregroundStyle(FolioTheme.muted).font(.system(size: 11))
-            TextField(tab == "notes" ? "Search notes" : "Search highlights", text: $query).textFieldStyle(.plain).font(.system(size: 12))
+            TextField("Search notes", text: $query).textFieldStyle(.plain).font(.system(size: 12))
             ForEach(Self.colors, id: \.0) { name, color in
                 Button { colorFilter = colorFilter == name ? nil : name } label: {
                     Circle().fill(Color(color)).frame(width: 14, height: 14)
@@ -194,33 +151,20 @@ struct NotesInspector: View {
         }
     }
 
-    @ViewBuilder private func content(_ markList: [MarkItem]) -> some View {
-        if tab == "notes" {
-            if all.isEmpty {
-                emptyState(heading: "No notes yet", body: "Write a note on the page or attach one to a passage. Your notes will appear here.",
-                           tip: markList.isEmpty ? "Tip: select text, then use Add note." : "Your highlights and underlines are in the Highlights tab.")
-            } else if shown.isEmpty {
-                Text("No notes match.").font(.callout).foregroundStyle(FolioTheme.muted)
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 10) {
-                        ForEach(PDFNotes.grouped(shown), id: \.page) { group in
-                            Text("Page \(group.page)".uppercased()).font(.system(size: 11, weight: .semibold)).tracking(1.2)
-                                .foregroundStyle(FolioTheme.sectionTitle).padding(.top, 4).accessibilityAddTraits(.isHeader)
-                            ForEach(group.notes) { note in card(note) }
-                        }
-                    }
-                }
-            }
-        } else if markList.isEmpty {
-            emptyState(heading: "No highlights yet", body: "Highlights and underlines you add to the page appear here as cards.",
-                       tip: "Tip: pick the Highlight tool, then drag across text.")
-        } else if shownMarks.isEmpty {
-            Text("No highlights match.").font(.callout).foregroundStyle(FolioTheme.muted)
+    @ViewBuilder private var content: some View {
+        if all.isEmpty {
+            emptyState(heading: "No notes yet", body: "Keep your written notes and attachments for this PDF here.",
+                       tip: "Tip: select text, then use Add note.")
+        } else if shown.isEmpty {
+            Text("No notes match.").font(.callout).foregroundStyle(FolioTheme.muted)
         } else {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: 10) {
-                    ForEach(shownMarks) { item in markCard(item) }
+                    ForEach(PDFNotes.grouped(shown), id: \.page) { group in
+                        Text("Page \(group.page)".uppercased()).font(.system(size: 11, weight: .semibold)).tracking(1.2)
+                            .foregroundStyle(FolioTheme.sectionTitle).padding(.top, 4).accessibilityAddTraits(.isHeader)
+                        ForEach(group.notes) { note in card(note) }
+                    }
                 }
             }
         }
@@ -229,7 +173,7 @@ struct NotesInspector: View {
 
     private func emptyState(heading: String, body: String, tip: String) -> some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(heading).font(.system(size: 21, weight: .regular, design: .serif)).foregroundStyle(FolioTheme.emptyHeading)
+            Text(heading).font(FolioTheme.heading(19)).foregroundStyle(FolioTheme.emptyHeading)
             Text(body).font(.system(size: 13)).foregroundStyle(FolioTheme.noteInk).fixedSize(horizontal: false, vertical: true)
             Text(tip).font(.system(size: 12)).foregroundStyle(FolioTheme.noteInk).padding(10).frame(maxWidth: .infinity, alignment: .leading)
                 .background(FolioTheme.tipBox, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
@@ -238,7 +182,7 @@ struct NotesInspector: View {
     }
 
     private func markColor(_ color: NSColor) -> Color {
-        Color(AnnotationPalette.name(for: color).map(AnnotationPalette.web) ?? color.withAlphaComponent(1))
+        Color(AnnotationPalette.name(for: color).map(AnnotationPalette.swatch) ?? color.withAlphaComponent(1))
     }
 
     private func cardShell<Content: View>(color: Color, selected: Bool = false, @ViewBuilder _ content: () -> Content) -> some View {
@@ -261,20 +205,6 @@ struct NotesInspector: View {
         }
     }
 
-    private func markCard(_ item: MarkItem) -> some View {
-        let color = markColor(item.color)
-        return Button { workspace.go(to: item.page); workspace.select(item.annotation) } label: {
-            cardShell(color: color, selected: workspace.selectedAnnotation === item.annotation) {
-                if !item.quote.isEmpty {
-                    Text(item.quote).lineLimit(6).font(.system(size: 15, design: .serif)).foregroundStyle(FolioTheme.quoteInk)
-                        .lineSpacing(4).frame(maxWidth: .infinity, alignment: .leading)
-                }
-                meta(color, "\(item.kind) · Page \(item.page)")
-            }
-        }.buttonStyle(.plain).help("Go to this \(item.kind.lowercased()) on page \(item.page)")
-            .accessibilityLabel("\(item.kind) on page \(item.page). \(item.quote)")
-    }
-
     @ViewBuilder private func card(_ note: PaperNote) -> some View {
         let editing = editingID == note.id
         let color = markColor(note.color)
@@ -288,7 +218,7 @@ struct NotesInspector: View {
                 NoteImageStrip(workspace: workspace, names: $draftImages, editable: true)
             } else {
                 Button { workspace.go(to: note.page); workspace.select(note.annotation) } label: {
-                    Text(note.body).font(.system(size: 13)).foregroundStyle(FolioTheme.ink.opacity(0.85))
+                    Text(note.body.isEmpty ? "Image attachment" : note.body).font(.system(size: 13)).foregroundStyle(FolioTheme.ink.opacity(0.85))
                         .frame(maxWidth: .infinity, alignment: .leading).contentShape(Rectangle())
                 }.buttonStyle(.plain).help("Go to this note on page \(note.page)")
                 if !note.images.isEmpty { NoteImageStrip(workspace: workspace, names: .constant(note.images), editable: false) }
@@ -298,8 +228,10 @@ struct NotesInspector: View {
                 meta(color, "Note · Page \(note.page)")
                 Spacer()
                 if editing {
-                    Button("Save") { workspace.updateNote(note, body: draftText, images: draftImages); editingID = nil }
-                        .disabled(draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("Save") {
+                        if workspace.updateNote(note, body: draftText, images: draftImages) { editingID = nil }
+                    }
+                        .disabled(draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && draftImages.isEmpty)
                     Button("Cancel") { editingID = nil }
                 } else {
                     Button { editingID = note.id; draftText = note.body; draftImages = note.images } label: { Image(systemName: "pencil") }

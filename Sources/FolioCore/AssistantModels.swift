@@ -84,10 +84,10 @@ public struct AssistantPaper {
         guard nextID > 0 else { throw AssistantError.message("This PDF has no selectable text. Scanned PDFs need OCR before using the assistant.") }
         var selected: [AssistantPassage] = []; var seen = Set<Int>(); var used = 0
         func take(_ passage: AssistantPassage) {
-            guard !seen.contains(passage.id), selected.count < 800, used + passage.text.count + 80 <= 120_000 else { return }
-            selected.append(passage); seen.insert(passage.id); used += passage.text.count + 80
+            guard !seen.contains(passage.id), selected.count < 800, used + Self.quoted(passage.text).utf8.count + 80 <= 40_000 else { return }
+            selected.append(passage); seen.insert(passage.id); used += Self.quoted(passage.text).utf8.count + 80
         }
-        buckets.flatMap { $0 }.prefix(12).forEach(take)
+        buckets.flatMap { $0 }.prefix(3).forEach(take)
         // Visit both ends and evenly distributed interior pages before adjacent pages,
         // so a short budget still reaches the end of a very long paper.
         var pageOrder = [0]; var intervals: [(Int, Int)] = []
@@ -115,9 +115,25 @@ public struct AssistantPaper {
             let text = lookupPages[index].split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
             let limit = index == 0 ? 2400 : 320
             let excerpt = String(text.prefix(limit)) + (text.count > limit ? " …" : "")
-            return "[Page \(index + 1)]\n\(excerpt)"
+            return "[Page \(index + 1)]\(truncatedPages[index] ? " [extraction truncated]" : "")\n\(text.isEmpty ? "No selectable text; images/scans need OCR." : excerpt)"
         }
         return String((header + blocks.joined(separator: "\n\n")).prefix(budget))
+    }
+    /// A small local window resolves ambiguous terms without sending the whole focus page.
+    /// Never substitute unrelated page text when the selected passage cannot be located.
+    public func selectionContext(_ selection: String, page: Int) -> String? {
+        guard (1...pageCount).contains(page) else { return nil }
+        let normalize: (String) -> String = { $0.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ") }
+        let text = normalize(lookupPages[page - 1]), needle = normalize(selection)
+        guard !needle.isEmpty, needle.count <= 12_000,
+              let range = text.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) else { return nil }
+        let start = text.index(range.lowerBound, offsetBy: -600, limitedBy: text.startIndex) ?? text.startIndex
+        if needle.count > 800 {
+            let end = text.index(range.upperBound, offsetBy: 600, limitedBy: text.endIndex) ?? text.endIndex
+            return String(text[start..<range.lowerBound]) + " [selected passage omitted here] " + String(text[range.upperBound..<end])
+        }
+        let end = text.index(start, offsetBy: 1600, limitedBy: text.endIndex) ?? text.endIndex
+        return String(text[start..<end])
     }
     public var coverage: String { "\(sampled ? "Sampled excerpts" : "All extracted text"): \(passages.count) of \(totalPassages) passages across \(Set(passages.map(\.page)).count) of \(pageCount) pages." }
     public static func quoted(_ text: String) -> String { (try? String(data: JSONEncoder().encode(text), encoding: .utf8)) ?? "\"\"" }

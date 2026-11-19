@@ -9,7 +9,9 @@
       "stars",
       "metadata",
       "notes",
-      "library"
+      "library",
+      "folders",
+      "recent"
     ],
     "rules": [
       "Sources/AGENTS.md",
@@ -26,7 +28,11 @@
       "Sources/FolioCore/LibraryOrganizing.swift",
       "Sources/FolioMac/LibraryImportViews.swift",
       "Tests/FolioCoreTests/ArxivAndOrganizingTests.swift",
-      "Sources/FolioMac/LibrarySidebar.swift"
+      "Sources/FolioMac/LibrarySidebar.swift",
+      "Tests/FolioMacTests/WorkspaceEditingTests.swift",
+      "Sources/FolioCore/ConversationIndex.swift",
+      "Sources/FolioMac/ConversationsView.swift",
+      "Tests/FolioCoreTests/ConversationIndexTests.swift"
     ],
     "docs": [
       "docs/STATE.md",
@@ -39,7 +45,13 @@
       "saveDocument",
       "Workspace.open",
       "changedPage",
-      "PDFNotes.read"
+      "PDFNotes.read",
+      "Workspace.openFolder",
+      "recentPapers",
+      "LibraryRepository.loadFolders",
+      "LibraryRepository.saveStructure",
+      "recoverStructureIfNeeded",
+      "Workspace.savePageStructure"
     ],
     "checks": [
       "swift test"
@@ -67,7 +79,15 @@
       "edit",
       "verification",
       "geometry",
-      "redo"
+      "redo",
+      "skim",
+      "classifier",
+      "MiniLM",
+      "performance",
+      "optimisation",
+      "optimization",
+      "thumbnail",
+      "cache"
     ],
     "rules": [
       "Sources/AGENTS.md",
@@ -100,25 +120,49 @@
       "Tests/FolioMacTests/InlineTextTests.swift",
       "Tests/FolioMacTests/ReaderRenderTests.swift",
       "Sources/FolioMac/ReaderSidebarParts.swift",
-      "Tests/FolioMacTests/WebStyleRenderTests.swift"
+      "Tests/FolioMacTests/WebStyleRenderTests.swift",
+      "Sources/FolioCore/SkimClassifier.swift",
+      "Sources/FolioMac/Workspace+Skim.swift",
+      "Tests/FolioCoreTests/SkimClassifierTests.swift",
+      "Tests/FolioMacTests/SkimWorkspaceTests.swift",
+      "Models/Skim/manifest.json",
+      "Models/Skim/vocab.txt",
+      "Models/Skim/LICENSE",
+      "Sources/FolioCore/StudyCopy.swift",
+      "Sources/FolioMac/WritingBelowView.swift",
+      "Tests/FolioCoreTests/StudyCopyTests.swift",
+      "Tests/FolioMacTests/ReaderParityTests.swift"
     ],
     "docs": [
       "docs/ARCHITECTURE.md",
       "docs/PORTING.md",
       "docs/QUALITY.md",
       "docs/DEVELOPMENT.md",
-      "docs/PDF_EDITING_VERIFICATION.md"
+      "docs/PDF_EDITING_VERIFICATION.md",
+      "Models/Skim/MODEL.md"
     ],
     "symbols": [
       "PDFCanvas.Coordinator",
       "ToolPDFView",
       "PDFEditing",
+      "PDFEditing.replacingHighlights",
       "PDFEditHistory.commit",
       "Workspace.saveEditor",
       "finishEditorIfNeeded",
       "markSelection",
       "exportCopy",
-      "ReaderView.find"
+      "ReaderView.find",
+      "prepareAnnotationEdit",
+      "saveEditor",
+      "PDFNotes.read",
+      "persistNoteDraft",
+      "SkimClassifier",
+      "SkimTokenizer",
+      "Workspace.toggleSkim",
+      "Workspace.notes",
+      "Workspace.documentSessionID",
+      "ReaderState.contentDidChange",
+      "NormalizedSearchText"
     ],
     "checks": [
       "swift test",
@@ -139,7 +183,16 @@
       "dark",
       "window",
       "build",
-      "icon"
+      "icon",
+      "glass",
+      "liquid",
+      "contrast",
+      "accessibility",
+      "menu bar",
+      "pull",
+      "launcher",
+      "status item",
+      "timer"
     ],
     "rules": [
       "Sources/AGENTS.md",
@@ -155,7 +208,16 @@
       "scripts/qa.sh",
       "Sources/FolioMac/QAHarness.swift",
       "Resources/Info.plist",
-      "Assets/Icon-512.png"
+      "Assets/Icon-512.png",
+      "Tests/FolioMacTests/WebStyleRenderTests.swift",
+      "Sources/FolioMac/LibrarySidebar.swift",
+      "Sources/FolioMac/ReaderControls.swift",
+      "Sources/FolioMac/MenuBarController.swift",
+      "Tests/FolioMacTests/MenuBarTests.swift",
+      "Sources/FolioMac/FocusTimerModel.swift",
+      "Sources/FolioMac/PullTimerGesture.swift",
+      "Sources/FolioMac/PullTimerDurationCalculator.swift",
+      "Sources/FolioMac/PullTimerOverlayController.swift"
     ],
     "docs": [
       "docs/DEVELOPMENT.md",
@@ -166,7 +228,11 @@
       "FolioApp",
       "WorkspaceView.sidebar",
       "FolioTheme",
-      "SettingsView"
+      "SettingsView",
+      "folioChrome",
+      "FolioChromeModifier",
+      "testThemeTextContrastInBothAppearances",
+      "folioSidebar"
     ],
     "checks": [
       "swift build",
@@ -185,7 +251,12 @@
       "docs",
       "routing",
       "ci",
-      "workflow"
+      "workflow",
+      "logic",
+      "invariants",
+      "audit",
+      "conditions",
+      "state transitions"
     ],
     "rules": [
       "docs/AGENTS.md",
@@ -193,13 +264,20 @@
     ],
     "files": [
       "scripts/context.py",
-      ".github/workflows/verify.yml"
+      ".github/workflows/verify.yml",
+      "scripts/export-skim.py",
+      "scripts/test_context.py",
+      "scripts/test_context.py"
     ],
     "docs": [
       "docs/AGENT_WORKFLOW.md",
       "docs/README.md",
       "docs/context/routes.json",
-      "docs/TESTING.md"
+      "docs/TESTING.md",
+      "docs/LOGIC_AUDIT.md",
+      "docs/archive/handoff-before-native-audit-2026-11-16.md",
+      "docs/context/features.json",
+      "docs/context/sensitive.json"
     ],
     "symbols": [
       "route",
@@ -207,6 +285,7 @@
     ],
     "checks": [
       "python3 scripts/context.py --check",
+      "python3 scripts/test_context.py",
       "git diff --check"
     ]
   },
@@ -279,9 +358,9 @@
       "Sources/FolioCore/AssistantModels.swift",
       "Sources/FolioCore/AssistantProvider.swift",
       "Sources/FolioCore/ClaudeKeyStore.swift",
+      "Sources/FolioCore/LocalDotEnv.swift",
       "Sources/FolioCore/AssistantService.swift",
       "Sources/FolioCore/PaperLookup.swift",
-      "Sources/FolioMac/AISettingsView.swift",
       "Sources/FolioMac/PaperAssistantView.swift",
       "Sources/FolioPaperTools/main.swift",
       "Tests/FolioCoreTests/AssistantTests.swift",
@@ -306,7 +385,34 @@
       "Tests/FolioMacTests/ConceptGraphSelectionTests.swift",
       "Tests/FolioCoreTests/LiveProviderTests.swift",
       "Sources/FolioMac/InsightsView.swift",
-      "Tests/FolioCoreTests/CredentialSessionTests.swift"
+      "Tests/FolioCoreTests/CredentialSessionTests.swift",
+      "Sources/FolioMac/SelectionInsightView.swift",
+      "Tests/FolioMacTests/SelectionInsightTests.swift",
+      "Tests/FolioMacTests/WebStyleRenderTests.swift",
+      "Sources/FolioMac/MathAnswerView.swift",
+      "Sources/FolioMac/Resources/Math/LICENSE",
+      "Sources/FolioMac/Resources/Math/katex.min.css",
+      "Sources/FolioMac/Resources/Math/katex.min.js",
+      "Sources/FolioMac/Resources/Math/fonts/KaTeX_Typewriter-Regular.woff2",
+      "Sources/FolioMac/Resources/Math/fonts/KaTeX_AMS-Regular.woff2",
+      "Sources/FolioMac/Resources/Math/fonts/KaTeX_Size3-Regular.woff2",
+      "Sources/FolioMac/Resources/Math/fonts/KaTeX_Main-Regular.woff2",
+      "Sources/FolioMac/Resources/Math/fonts/KaTeX_Caligraphic-Bold.woff2",
+      "Sources/FolioMac/Resources/Math/fonts/KaTeX_SansSerif-Bold.woff2",
+      "Sources/FolioMac/Resources/Math/fonts/KaTeX_Math-Italic.woff2",
+      "Sources/FolioMac/Resources/Math/fonts/KaTeX_Size4-Regular.woff2",
+      "Sources/FolioMac/Resources/Math/fonts/KaTeX_Fraktur-Bold.woff2",
+      "Sources/FolioMac/Resources/Math/fonts/KaTeX_SansSerif-Italic.woff2",
+      "Sources/FolioMac/Resources/Math/fonts/KaTeX_Main-Bold.woff2",
+      "Sources/FolioMac/Resources/Math/fonts/KaTeX_SansSerif-Regular.woff2",
+      "Sources/FolioMac/Resources/Math/fonts/KaTeX_Main-BoldItalic.woff2",
+      "Sources/FolioMac/Resources/Math/fonts/KaTeX_Fraktur-Regular.woff2",
+      "Sources/FolioMac/Resources/Math/fonts/KaTeX_Script-Regular.woff2",
+      "Sources/FolioMac/Resources/Math/fonts/KaTeX_Math-BoldItalic.woff2",
+      "Sources/FolioMac/Resources/Math/fonts/KaTeX_Main-Italic.woff2",
+      "Sources/FolioMac/Resources/Math/fonts/KaTeX_Size1-Regular.woff2",
+      "Sources/FolioMac/Resources/Math/fonts/KaTeX_Size2-Regular.woff2",
+      "Sources/FolioMac/Resources/Math/fonts/KaTeX_Caligraphic-Regular.woff2"
     ],
     "docs": [
       "docs/AI_SETUP.md",
@@ -321,7 +427,22 @@
       "AssistantRepository",
       "AssistantProcessRunner",
       "PaperLookup.call",
-      "PaperAssistantModel.load"
+      "PaperAssistantModel.load",
+      "SelectionInsightModel.explain",
+      "SelectionInsightPopup",
+      "InsightScrollBody",
+      "AssistantPaper.selectionContext",
+      "PDFCanvas.Coordinator.updateInsight",
+      "Workspace.explainFinishedSelection",
+      "ClaudeKeyStore.nonInteractiveQuery",
+      "GlancePanel",
+      "GlanceOutline",
+      "testRenderPaperGlance",
+      "testRenderAskPanel",
+      "testRenderAskReaderResize",
+      "PaperLookup.search",
+      "AssistantService.compactHistory",
+      "AskPanel.split"
     ],
     "checks": [
       "swift test",

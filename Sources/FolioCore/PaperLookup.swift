@@ -25,6 +25,40 @@ public struct PaperLookup: Codable, Sendable {
         ]
     }
 
+    /// Shared by on-demand tools and local request assembly. Rare terms outrank boilerplate;
+    /// matches use tokens rather than substrings ("cat" must not match "classification").
+    public struct Hit {
+        public let page: Int
+        public let start: Int // UTF-16, as accepted by read_paper_page
+        public let text: String
+    }
+    public func search(_ query: String) -> [Hit] {
+        let stopWords = Set("a an and are as at be been by can could did do does explain for from give has have how i in is it its me of on or paper please s show tell than that the their these they this those to us was we were what when where which why will with would you your".split(separator: " ").map(String.init))
+        func tokens(_ text: String) -> Set<String> {
+            Set(text.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { !$0.isEmpty })
+        }
+        let terms = Array(tokens(String(query.prefix(8000))).subtracting(stopWords)).sorted().prefix(30)
+        guard !terms.isEmpty else { return [] }
+        let pageTokens = pages.map(tokens)
+        let weights = Dictionary(uniqueKeysWithValues: terms.map { term in
+            (term, 1 + log(Double(pages.count + 1) / Double(1 + pageTokens.filter { $0.contains(term) }.count)))
+        })
+        var ranked: [(score: Double, hit: Hit)] = []
+        for (index, text) in pages.enumerated() {
+            guard terms.contains(where: { pageTokens[index].contains($0) }) else { continue }
+            let units = Array(text.utf16)
+            var best: (score: Double, hit: Hit)?
+            for start in stride(from: 0, to: units.count, by: 1000) {
+                let excerpt = String(decoding: units[start..<min(start + 1400, units.count)], as: UTF16.self)
+                let found = tokens(excerpt)
+                let score = terms.reduce(0.0) { $0 + (found.contains($1) ? weights[$1, default: 1] : 0) }
+                if score > (best?.score ?? 0) { best = (score, Hit(page: index + 1, start: start, text: excerpt)) }
+            }
+            if let best { ranked.append(best) }
+        }
+        return ranked.sorted { $0.score == $1.score ? $0.hit.page < $1.hit.page : $0.score > $1.score }.map(\.hit)
+    }
+
     private func integer(_ value: Any?) -> Int? {
         guard let value = value as? NSNumber, CFGetTypeID(value) != CFBooleanGetTypeID(),
               value.doubleValue.isFinite, value.doubleValue.rounded() == value.doubleValue,
@@ -54,21 +88,8 @@ public struct PaperLookup: Codable, Sendable {
                   query.count <= 300, arguments.keys.allSatisfy({ $0 == "query" }) else {
                 return ["error": "Search with 1–300 characters."]
             }
-            let termCharacters = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "_-"))
-            let terms = Array(Set(query.lowercased().components(separatedBy: termCharacters.inverted).filter { $0.count > 1 })).sorted().prefix(30)
-            var hits: [(score: Int, page: Int, start: Int, text: String)] = []
-            for (index, text) in pages.enumerated() {
-                let units = Array(text.utf16)
-                var best: (score: Int, page: Int, start: Int, text: String)?
-                for start in stride(from: 0, to: units.count, by: 1000) {
-                    let excerpt = String(decoding: units[start..<min(start + 1400, units.count)], as: UTF16.self)
-                    let lower = excerpt.lowercased()
-                    let score = terms.filter { lower.contains($0) }.count
-                    if score > (best?.score ?? 0) { best = (score, index + 1, start, excerpt) }
-                }
-                if let best { hits.append(best) }
-            }
-            let results: [[String: Any]] = hits.sorted { $0.score == $1.score ? $0.page < $1.page : $0.score > $1.score }.prefix(8).map {
+            let hits = search(query)
+            let results: [[String: Any]] = hits.prefix(8).map {
                 ["page": $0.page, "start": $0.start, "text": $0.text, "truncated": truncated[$0.page - 1]]
             }
             return ["totalPages": pages.count, "results": results, "limited": truncated.contains(true)]
