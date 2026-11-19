@@ -1,5 +1,15 @@
 # Verification evidence
 
+## v0.1.0 downloadable Mac preview — 2026-11-19
+
+- Published GitHub prerelease `v0.1.0` at application source `26ba2c42f159646a3353e67ab17c3184308989dd`. That source passed hosted run 44503029752, including tests, source-only packaging, privacy and signature checks. Repository visibility remains private.
+- Fresh full release: `FOLIO_SWIFTPM_UNSANDBOXED=1 FOLIO_SOURCE_ONLY_BUILD=0 scripts/build-app.sh release` passed normal model-required packaging, privacy gate and deep/strict signature verification; log `/tmp/folio-v0.1.0-release-build.log`.
+- Asset `Folio-v0.1.0-macos-arm64.zip`: 46,238,291 bytes, arm64 app, version 0.1.0/build 1, minimum macOS 14. SHA-256 `625bf6010b91f0a18cd67573186e7f6ccd82b3878440df36640cca18518d4994`; attached `SHA256SUMS.txt`. ZIP CRC, root layout, helper/math/model resources and absence of metadata/resource-fork sidecars checked. No dotenv metadata or private user library is included.
+- `ditto -c -k --keepParent --norsrc --noextattr --noqtn --noacl` produced the ZIP; an extracted copy passed `codesign --verify --deep --strict`. The draft-uploaded ZIP was downloaded with `gh release download`; `shasum -a 256 -c SHA256SUMS.txt` passed before publication. Final release metadata reports published, prerelease, correct source target and both uploaded assets.
+- Smoke test of the ZIP-extracted app used `/tmp/folio-release-v010-qa` and disposable library `/tmp/folio-release-v010-library`: `open-sample`, `skim on`, `math-fixture`, `snapshot release-check`, `quit` all acknowledged. Skim produced two Method marks. The CGWindow screenshot was visually inspected: sample PDF, Skim margin/overlays and typeset inline/display equations rendered. No real-library writes or provider calls.
+- Limits: Apple Silicon only; locally ad-hoc signed, not notarized. Minimum OS is declared, not freshly tested on every macOS version. No Intel/universal, Developer ID or live-provider claim. Current limitations and setup are in the release notes and README. Context and whitespace checks passed for the release documentation.
+
+
 ## Portable resource lookup follow-up — 2026-11-19
 
 - Reproduced older SwiftPM’s generated absolute resource path using `swift build --build-system native -c release --scratch-path .build/native-ci` with local-cache/unsandboxed options, prefix mapping and dead stripping. After replacing Bundle.module with runtime lookup, stripping the copied executable left zero `/Users/` paths. Log `/tmp/folio-native-build-system-check.log`. This reproduces the build system, not the older SDK.

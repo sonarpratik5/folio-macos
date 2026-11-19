@@ -6,6 +6,8 @@ Folio is a native macOS research workspace built with SwiftUI, AppKit and PDFKit
 
 It is designed for students working through unfamiliar material, researchers comparing methods and evidence, and anyone who wants to return to a paper with their notes and reading position intact. The aim is to make close reading easier: move from the paper's overview to a passage, annotate it, ask a focused question and return to the evidence without juggling several tools.
 
+**Download:** [v0.1.0 — Apple Silicon preview](https://github.com/sonarpratik5/folio-macos/releases/tag/v0.1.0) for macOS 14+. Includes the local Skim model. This is an ad-hoc signed, unnotarized preview; see the release notes for installation. Repository access is required while the project is private.
+
 ## A look inside
 
 The images below show the real application with its generated sample paper in a disposable library. No personal papers, credentials or conversations are included.
