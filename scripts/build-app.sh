@@ -20,11 +20,14 @@ package_root="$(mktemp -d "$PWD/.build/package.XXXXXX")"
 trap 'rm -rf "$package_root"' EXIT
 app_path="$package_root/Folio.app"
 mkdir -p "$app_path/Contents/MacOS" "$app_path/Contents/Resources"
-if [[ ! -d Models/Skim/AdaptedMiniLM.mlmodelc ]]; then
+if [[ ! -d Models/Skim/AdaptedMiniLM.mlmodelc && "${FOLIO_SOURCE_ONLY_BUILD:-0}" != 1 ]]; then
     echo "Missing adapted Skim model. See Models/Skim/MODEL.md for the local export command." >&2
     exit 1
 fi
 cp -R Models/Skim "$app_path/Contents/Resources/Skim"
+if [[ ! -d Models/Skim/AdaptedMiniLM.mlmodelc ]]; then
+    echo "Source-only bundle: local Skim unavailable; model weights were not supplied." >&2
+fi
 cp -R "$bin_path/FolioMac_FolioMac.bundle" "$app_path/Contents/Resources/"
 cp "$bin_path/FolioMac" "$app_path/Contents/MacOS/FolioMac"
 cp "$bin_path/FolioPaperTools" "$app_path/Contents/MacOS/FolioPaperTools"

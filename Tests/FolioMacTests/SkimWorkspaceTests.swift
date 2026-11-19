@@ -42,6 +42,8 @@ final class SkimWorkspaceTests: XCTestCase {
 
     @MainActor
     func testSkimInferenceLeavesPDFNotesAndHistoryUntouched() async throws {
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: SkimClassifier.modelDirectory.appendingPathComponent("AdaptedMiniLM.mlmodelc").path),
+                          "Adapted Skim weights are not tracked; export the model to verify inference integration.")
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         let workspace = Workspace(libraryRoot: root); workspace.sample()

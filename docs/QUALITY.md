@@ -59,3 +59,7 @@ Menu bar timer limits: seven tests cover gesture scaling/precision, direct captu
 
 
 2026-11-16 audit: symlinked managed-library export destinations and debounced view-setting identity/custom-zoom regressions are corrected with generated-fixture tests. View-setting write failures retain snapshots for session retry; a forced quit still loses pending in-memory settings. Physical save-panel/keyboard interaction, filesystem replacement races and large-document profiling remain open. See [prioritized remaining checks](LOGIC_AUDIT.md#remaining-checks-and-decisions-in-priority-order).
+
+## Source-only CI coverage — 2026-11-19
+
+The macos-15 workflow validates older-SDK compilation and packaging with `FOLIO_SOURCE_ONLY_BUILD=1`. The adapted Skim model is untracked, so two real-inference tests skip when it is absent. All other Skim tests remain enabled. This is not model-inference or fully provisioned bundle evidence; default local packaging still requires the model.

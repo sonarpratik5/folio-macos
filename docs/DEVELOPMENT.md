@@ -48,7 +48,7 @@ python3 scripts/context.py --check
 git diff --check
 ```
 
-CI runs the harness checker, core tests and release app build on macos-15. A configured workflow is not evidence of a hosted run; record actual results in [TESTING](TESTING.md). No screenshot testing or UI automation framework is installed.
+CI runs the harness checker, native tests and a source-only release app build on macos-15. The runner uses an older SDK, so macOS 26 glass calls require both compiler and runtime guards. Adapted Skim weights are intentionally untracked: two real-inference tests explicitly skip only when the compiled model is absent; tokenizer, missing-model and overlay/cancellation tests still run. CI sets `FOLIO_SOURCE_ONLY_BUILD=1` for packaging without weights; Skim then reports the existing missing-model error. Default packaging still requires the model and local verification with weights exercises both inference tests. A source-only CI success does not verify model parity or produce a fully provisioned Skim bundle. A configured workflow is not evidence of a hosted run; record actual results in [TESTING](TESTING.md). No screenshot testing or UI automation framework is installed.
 
 ## QA harness and live tests (2026-11-14)
 

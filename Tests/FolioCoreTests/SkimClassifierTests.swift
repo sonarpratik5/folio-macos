@@ -74,6 +74,8 @@ final class SkimClassifierTests: XCTestCase {
             let verification: [Check]
         }
         let directory = SkimClassifier.modelDirectory
+        try XCTSkipUnless(FileManager.default.fileExists(atPath: directory.appendingPathComponent("AdaptedMiniLM.mlmodelc").path),
+                          "Adapted Skim weights are not tracked; export the model to run native prediction parity.")
         let manifest = try JSONDecoder().decode(Manifest.self, from: Data(contentsOf: directory.appendingPathComponent("manifest.json")))
         let tokenizer = try SkimTokenizer(vocabulary: String(contentsOf: directory.appendingPathComponent("vocab.txt")))
         let classifier = SkimClassifier(directory: directory)

@@ -294,10 +294,19 @@ private struct PullTimerGlass: ViewModifier {
     func body(content: Content) -> some View {
         if reduceTransparency || contrast == .increased {
             content.background(Color(nsColor: .windowBackgroundColor), in: Capsule())
-        } else if #available(macOS 26, *) {
+        } else {
+            material(content)
+        }
+    }
+    @ViewBuilder private func material(_ content: Content) -> some View {
+        #if compiler(>=6.2)
+        if #available(macOS 26, *) {
             content.glassEffect(.regular, in: .capsule)
         } else {
             content.background(.regularMaterial, in: Capsule())
         }
+        #else
+        content.background(.regularMaterial, in: Capsule())
+        #endif
     }
 }

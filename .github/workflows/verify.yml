@@ -13,5 +13,7 @@ jobs:
           python3 scripts/test_context.py
       - name: Test managed storage and PDF annotations
         run: swift test
-      - name: Build native app bundle
+      - name: Build source-only native app bundle (Skim weights not tracked)
+        env:
+          FOLIO_SOURCE_ONLY_BUILD: '1'
         run: scripts/build-app.sh release

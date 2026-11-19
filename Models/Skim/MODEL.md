@@ -15,7 +15,7 @@ HF_HUB_OFFLINE=1 TOKENIZERS_PARALLELISM=false .build/skim-venv/bin/python script
 FOLIO_SWIFTPM_UNSANDBOXED=1 scripts/build-app.sh debug
 ```
 
-macOS Core ML compilation requires host service access. The exporter reads only the supplied checkpoint, verifies synthetic native predictions against PyTorch, and compiles into `Models/Skim`. It does not download, train or upload papers. Runtime resources are copied into the app bundle; SwiftPM development/test binaries use this repository's `Models/Skim`. A fresh clone requires the adapted checkpoint/export; the source code is portable, but this checkpoint is not fetched automatically. A missing model reports an error without a different model fallback.
+macOS Core ML compilation requires host service access. The exporter reads only the supplied checkpoint, verifies synthetic native predictions against PyTorch, and compiles into `Models/Skim`. It does not download, train or upload papers. Runtime resources are copied into the app bundle; SwiftPM development/test binaries use this repository's `Models/Skim`. Default packaging of a fresh clone requires the adapted checkpoint/export; the source code is portable, but this checkpoint is not fetched automatically. A missing model reports an error without a different model fallback. Source-only CI explicitly sets `FOLIO_SOURCE_ONLY_BUILD=1` to verify app packaging without the untracked model and skips the two model-inference tests when weights are absent. Normal packaging remains strict.
 
 ## Provenance and limitations
 
