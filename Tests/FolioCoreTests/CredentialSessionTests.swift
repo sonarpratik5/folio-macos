@@ -7,30 +7,37 @@ final class CredentialSessionTests: XCTestCase {
     func testDotEnvDiscoveryFromWorkingDirectoryAndFinderBuildBundle() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
+        func key(directory: URL, bundleURL: URL) -> String? {
+            LocalDotEnv.value("ANTHROPIC_API_KEY", directory: directory, bundleURL: bundleURL,
+                              userConfiguration: root.appendingPathComponent("absent-user-config.env"))
+        }
         let project = root.appendingPathComponent("native")
         let unrelated = root.appendingPathComponent("unrelated")
         try FileManager.default.createDirectory(at: project, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: unrelated, withIntermediateDirectories: true)
         let bundle = project.appendingPathComponent(".build/Folio.app")
-        XCTAssertNil(ClaudeKeyStore.dotEnvKey(directory: unrelated, bundleURL: bundle))
+        XCTAssertNil(key(directory: unrelated, bundleURL: bundle))
         try "export ANTHROPIC_API_KEY='synthetic-project-key' # local".write(to: project.appendingPathComponent(".env"), atomically: true, encoding: .utf8)
-        XCTAssertEqual(ClaudeKeyStore.dotEnvKey(directory: unrelated, bundleURL: bundle), "synthetic-project-key")
-        XCTAssertEqual(ClaudeKeyStore.dotEnvKey(directory: project, bundleURL: root), "synthetic-project-key")
+        XCTAssertEqual(key(directory: unrelated, bundleURL: bundle), "synthetic-project-key")
+        XCTAssertEqual(key(directory: project, bundleURL: root), "synthetic-project-key")
         try "ANTHROPIC_API_KEY=synthetic-working-key".write(to: unrelated.appendingPathComponent(".env"), atomically: true, encoding: .utf8)
-        XCTAssertEqual(ClaudeKeyStore.dotEnvKey(directory: unrelated, bundleURL: bundle), "synthetic-working-key")
-        XCTAssertNil(ClaudeKeyStore.dotEnvKey(directory: root, bundleURL: root.appendingPathComponent("Applications/Folio.app")))
+        XCTAssertEqual(key(directory: unrelated, bundleURL: bundle), "synthetic-working-key")
+        XCTAssertNil(key(directory: root, bundleURL: root.appendingPathComponent("Applications/Folio.app")))
     }
 
-    func testInstalledBundleUsesConfiguredDotEnvPathWithoutWorkingDirectory() throws {
+    func testInstalledBundleUsesUserLocalConfigurationWithoutBuilderPath() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: root) }
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         let dotenv = root.appendingPathComponent("native.env")
         try "ANTHROPIC_API_KEY=synthetic-installed-key\nOPENREVIEW_TOKEN=synthetic-review-token".write(to: dotenv, atomically: true, encoding: .utf8)
         let movedBundle = root.appendingPathComponent("Applications/Folio.app")
-        XCTAssertEqual(LocalDotEnv.value("ANTHROPIC_API_KEY", directory: root, bundleURL: movedBundle, configuredPath: dotenv.path), "synthetic-installed-key")
-        XCTAssertEqual(LocalDotEnv.value("OPENREVIEW_TOKEN", directory: root, bundleURL: movedBundle, configuredPath: dotenv.path), "synthetic-review-token")
-        XCTAssertNil(LocalDotEnv.value("ANTHROPIC_API_KEY", directory: root, bundleURL: movedBundle, configuredPath: root.appendingPathComponent("missing.env").path))
+        try "ANTHROPIC_API_KEY=synthetic-development-key".write(to: root.appendingPathComponent(".env"), atomically: true, encoding: .utf8)
+        XCTAssertEqual(LocalDotEnv.value("ANTHROPIC_API_KEY", directory: root, bundleURL: movedBundle, userConfiguration: dotenv), "synthetic-installed-key")
+        XCTAssertEqual(LocalDotEnv.value("OPENREVIEW_TOKEN", directory: root, bundleURL: movedBundle, userConfiguration: dotenv), "synthetic-review-token")
+        // Missing settings fall back per variable, without consulting bundle metadata.
+        XCTAssertEqual(LocalDotEnv.value("ANTHROPIC_API_KEY", directory: root, bundleURL: movedBundle, userConfiguration: root.appendingPathComponent("missing.env")), "synthetic-development-key")
+        XCTAssertNil(LocalDotEnv.value("OPENREVIEW_TOKEN", directory: root, bundleURL: movedBundle, userConfiguration: root.appendingPathComponent("missing.env")))
     }
 
     func testLegacyKeychainInteractionIsDisabledForThisProcess() {

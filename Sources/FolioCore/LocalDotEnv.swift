@@ -2,14 +2,13 @@ import Foundation
 
 /// Read local credentials without exporting them to child processes or copying them into the bundle.
 public enum LocalDotEnv {
-    /// Load only the native project's dotenv; never search sibling repositories or bundle secrets.
-    /// The build-bundle location also works when Finder supplies an unrelated working directory.
+    /// User-local configuration works for Finder launches without embedding the builder's paths.
+    /// Native project dotenv remains a development fallback; never search sibling repositories.
     public static func value(_ name: String, directory: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
                                  bundleURL: URL = Bundle.main.bundleURL,
-                                 configuredPath: String? = Bundle.main.object(forInfoDictionaryKey: "FolioEnvironmentFile") as? String) -> String? {
-        // Local builds retain only the file path, so copying the app does not copy credentials.
-        var candidates: [URL] = []
-        if let configuredPath, configuredPath.hasPrefix("/") { candidates.append(URL(fileURLWithPath: configuredPath)) }
+                                 userConfiguration: URL = FileManager.default.homeDirectoryForCurrentUser
+                                    .appendingPathComponent("Library/Application Support/FolioMac/.env")) -> String? {
+        var candidates = [userConfiguration]
         candidates.append(directory.appendingPathComponent(".env"))
         let buildDirectory = bundleURL.deletingLastPathComponent()
         if buildDirectory.lastPathComponent == ".build" {

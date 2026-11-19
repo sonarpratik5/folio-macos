@@ -61,7 +61,7 @@ The human explicitly supplied ANTHROPIC_API_KEY and OPENREVIEW_TOKEN / OPENREVIE
 
 The sidebar prioritizes folders, per the human request. Opening a folder shows its PDFs; Recent provides newest-visit-first reader access across folders. Folder imports keep private managed copies, never write originals, and require an explicit reopen/Refresh folder to discover new files. Existing library and saved-work destinations remain secondary.
 
-Local-development bundle copies must retain access to the native project `.env` when launched from Finder. The build records its absolute file path as non-secret bundle metadata, without copying keys or changing Keychain policy. Rebuild if the project moves.
+The 2026-11-19 privacy request supersedes build-recorded dotenv paths. Finder/Applications launches use the running user's `~/Library/Application Support/FolioMac/.env`; launch-environment variables retain priority, with native development dotenv and legacy Keychain fallbacks. Packaging must not embed the builder's personal source/debug paths or configuration path. Existing local credentials/libraries remain untouched.
 
 ## Paper at a glance parity — 2026-11-14
 

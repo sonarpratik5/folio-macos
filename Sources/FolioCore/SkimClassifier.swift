@@ -104,7 +104,8 @@ public actor SkimClassifier {
     public static var modelDirectory: URL {
         let bundled = Bundle.main.resourceURL?.appendingPathComponent("Skim", isDirectory: true)
         if let bundled, FileManager.default.fileExists(atPath: bundled.appendingPathComponent("manifest.json").path) { return bundled }
-        return URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("Models/Skim", isDirectory: true)
+        // SwiftPM commands run from the repository; never compile the builder's source path into the app.
+        return URL(fileURLWithPath: FileManager.default.currentDirectoryPath).appendingPathComponent("Models/Skim", isDirectory: true)
     }
     public init(directory: URL = SkimClassifier.modelDirectory) { self.directory = directory }
     /// Ranges remain relative to the original PDFKit page string, including line breaks/hyphens.

@@ -103,7 +103,7 @@ FolioApp initializes ClaudeKeyStore.prepareNonInteractiveAccess, which sets SecK
 
 Selection insight sizing: `InsightScrollBody` measures the natural response-stack height at the fixed 380pt popup width, then limits its viewport to 260pt. `NSHostingController.sizingOptions = [.preferredContentSize]` propagates loading/result/error height changes to NSPopover. The popup has no fixed overall height; header and quote stay outside the response scroller. Thin material replaces the opaque fill; accessibility Reduce Transparency/Increase Contrast use the existing solid panel color.
 
-LocalDotEnv reads only the requested variable from the absolute `FolioEnvironmentFile` path recorded by build-app.sh in the generated bundle plist, then the working-directory `.env`, then the project above `.build/Folio.app`; secrets are not bundled or exported. NativeReviewsClient merges launch and dotenv credentials per variable; injected test environments disable file discovery. Its private authentication actor keeps tokens in memory, signs in on demand at api2.openreview.net/login, and retries one rejected request after login. Redirects must remain on the original API host. Codex child environments strip all configured Claude/OpenReview credential variables.
+LocalDotEnv reads each requested variable from the running user's `~/Library/Application Support/FolioMac/.env`, then the working-directory `.env`, then the project above `.build/Folio.app`. No build-recorded absolute path is consulted; secrets are not bundled or exported. NativeReviewsClient merges launch and dotenv credentials per variable; injected test environments disable file discovery. Its private authentication actor keeps tokens in memory, signs in on demand at api2.openreview.net/login, and retries one rejected request after login. Redirects must remain on the original API host. Codex child environments strip all configured Claude/OpenReview credential variables.
 
 ## Folder navigation and recent visits
 
@@ -113,7 +113,7 @@ Reader rotation tracks intrinsic angles by PDFPage identity, retaining removed w
 
 ## Local bundle replacement
 
-`build-app.sh` copies executables/resources into a unique staging directory (including its iconset), records only the dotenv path, ad-hoc signs, and deep/strict verifies before moving the previous bundle aside and publishing the new directory. Fresh executable inodes avoid stale macOS code-signature state after in-place rebuilds; failed packaging leaves the previous bundle intact. Installed copies require the same stage/verify/replace procedure.
+`build-app.sh` copies executables/resources into a unique staging directory (including its iconset), remaps compiler source/debug paths, strips executable debug-map symbols, rejects bundled home paths/private data files/recognized credential patterns, ad-hoc signs, and deep/strict verifies before moving the previous bundle aside and publishing the new directory. Fresh executable inodes avoid stale macOS code-signature state after in-place rebuilds; failed packaging leaves the previous bundle intact. Installed copies require the same stage/verify/replace procedure.
 
 ## Local Skim highlights
 

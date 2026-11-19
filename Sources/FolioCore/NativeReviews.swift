@@ -94,7 +94,7 @@ private actor OpenReviewAuthentication {
         guard (200..<300).contains(status), data.count <= 4_000_000,
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let value = object["token"] as? String, !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
-            throw AssistantError.message(status == 429 ? "OpenReview sign-in is rate limited. Try again later." : "OpenReview sign-in failed. Check OPENREVIEW_USERNAME / OPENREVIEW_PASSWORD in the native project’s .env.")
+            throw AssistantError.message(status == 429 ? "OpenReview sign-in is rate limited. Try again later." : "OpenReview sign-in failed. Check OPENREVIEW_USERNAME / OPENREVIEW_PASSWORD in Folio’s local .env configuration.")
         }
         token = value
         return value
@@ -178,7 +178,7 @@ public struct NativeReviewsClient {
         try Task.checkCancellation()
         if status == 404 { return [] }
         guard (200..<300).contains(status) else {
-            throw AssistantError.message([401, 403].contains(status) ? "OpenReview requires access to this thread. Check OPENREVIEW_TOKEN or OPENREVIEW_USERNAME / OPENREVIEW_PASSWORD in the native project’s .env or launch environment, or open its public source in your browser." : status == 429 ? "OpenReview is rate limited. Try again later." : "OpenReview could not complete this request.")
+            throw AssistantError.message([401, 403].contains(status) ? "OpenReview requires access to this thread. Check OPENREVIEW_TOKEN or OPENREVIEW_USERNAME / OPENREVIEW_PASSWORD in Folio’s local .env configuration or launch environment, or open its public source in your browser." : status == 429 ? "OpenReview is rate limited. Try again later." : "OpenReview could not complete this request.")
         }
         guard data.count <= 4_000_000, let value = try? JSONSerialization.jsonObject(with: data) as? [String: Any], let notes = value["notes"] as? [[String: Any]], notes.count <= 1000 else { throw AssistantError.message("OpenReview returned an invalid or oversized response.") }
         return notes

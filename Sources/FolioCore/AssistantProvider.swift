@@ -252,7 +252,7 @@ public struct AssistantClient {
     }
     private func claude(_ request: AssistantRequest, onText: (@Sendable (String) -> Void)? = nil) async throws -> String {
         let envKey = environment["ANTHROPIC_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let key = (envKey?.isEmpty == false ? envKey : storedKey()), !key.isEmpty, !key.hasPrefix("paste-") else { throw AssistantError.message("Claude’s key is missing or macOS has blocked access to it. Check ANTHROPIC_API_KEY in the native project’s .env or Folio’s launch environment, or the previously imported key, or choose Codex CLI. Folio will not open a Keychain password prompt.") }
+        guard let key = (envKey?.isEmpty == false ? envKey : storedKey()), !key.isEmpty, !key.hasPrefix("paste-") else { throw AssistantError.message("Claude’s key is missing or macOS has blocked access to it. Check ANTHROPIC_API_KEY in Folio’s local .env configuration or Folio’s launch environment, or the previously imported key, or choose Codex CLI. Folio will not open a Keychain password prompt.") }
         var turns: [[String: Any]] = request.messages.map { ["role": $0.role.rawValue, "content": $0.content] }
         var allText: [String] = []; var calls = 0; var sources: [String: String] = [:]
         let began = Date()

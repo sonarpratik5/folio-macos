@@ -1,6 +1,6 @@
 # Web reference and visual translation
 
-Reference: [sonarpratik5/folio](https://github.com/sonarpratik5/folio), inspected locally on 2026-11-14. Its HEAD was `02545f9bff3d4640fdaa4d6b3b5fd5f179aa7456`, **with extensive uncommitted work**. That SHA alone does not reproduce the inspected state. No web source files, papers, local data, provider secrets or promotional artifacts were copied into this repository.
+Reference: the original Folio web repository, inspected locally on 2026-11-14. Its HEAD was `02545f9bff3d4640fdaa4d6b3b5fd5f179aa7456`, **with extensive uncommitted work**. That SHA alone does not reproduce the inspected state. No web source files, papers, local data, provider secrets or promotional artifacts were copied into this repository.
 
 Inspected: web AGENTS/handoff/context map, current STATE and architecture ownership, Home library rendering, RightSidebar, annotation types, Classic CSS variables and Studio tokens. The local promotional library image was inspected as a historical visual aid, not treated as current behavior evidence. The native port is hand-written Swift; it does not embed the React app.
 

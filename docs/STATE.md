@@ -50,7 +50,7 @@ Selection requests include a local surrounding window of at most 1,600 character
 
 - OpenReview authentication reads local dotenv/launch-environment token and login credentials; token-first, lazy username/password sign-in, and one login/retry after 401/403. No automatic requests on opening Peer Reviews.
 
-- Generated local app bundles record the native `.env` file path in `FolioEnvironmentFile`; Finder/Applications launches retain configuration without bundling secrets or depending on terminal working directory.
+- App bundles contain no build-recorded dotenv path. Finder/Applications launches resolve `~/Library/Application Support/FolioMac/.env` for the running user, with environment precedence and development/legacy Keychain fallbacks. Packaging remaps source/debug paths, strips executable debug-map symbols and uses runtime project lookup for SwiftPM Skim resources instead of compiled `#filePath`.
 
 ## Startup repair — 2026-11-14
 

@@ -128,20 +128,22 @@
       "Sources/FolioCore/LocalDotEnv.swift",
       "Sources/FolioCore/AssistantProvider.swift",
       "Sources/FolioMac/FolioApp.swift",
-      "Sources/FolioMac/SettingsView.swift"
+      "Sources/FolioMac/SettingsView.swift",
+      "scripts/build-app.sh"
     ],
-    "contract": "Keep process/query Keychain interaction disabled and provider child environments stripped. Resolve only authorized configuration; never print secrets or add key controls without a request.",
-    "regression": "Legacy Keychain ACL prompts required process-level suppression in addition to query policy; restricted test environments differ from host services.",
+    "contract": "Keep process/query Keychain interaction disabled and provider child environments stripped. Resolve only authorized configuration; never print secrets or add key controls without a request. Resolve user-local dotenv at runtime; shared bundles must not carry builder paths, local data files or credentials.",
+    "regression": "Legacy Keychain ACL prompts required process-level suppression in addition to query policy; restricted test environments differ from host services. Build-recorded dotenv metadata, #filePath and linker debug-map symbols exposed builder paths; packaging now removes them and scans before signing.",
     "docs": [
       "docs/AI_SETUP.md",
       "docs/ARCHITECTURE.md",
       "docs/LOGIC_AUDIT.md"
     ],
     "checks": [
-      "swift test --filter CredentialSessionTests"
+      "swift test --filter CredentialSessionTests",
+      "scripts/build-app.sh release"
     ],
     "limits": "A policy assertion or build does not prove every live credential path is prompt-free.",
-    "reviewed": "2026-11-16: source/document inspection; runtime evidence remains in docs/TESTING.md, no fresh app tests for this harness change."
+    "reviewed": "2026-11-19: user-local configuration and bundle privacy audit; current evidence in docs/TESTING.md."
   },
   {
     "id": "palette",
