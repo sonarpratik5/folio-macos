@@ -6,6 +6,7 @@ case "$configuration" in debug|release) ;; *) echo 'Usage: scripts/build-app.sh 
 # Keep all compiler/package caches inside this checkout, including in managed workspaces.
 export CLANG_MODULE_CACHE_PATH="$PWD/.build/ModuleCache"
 build_options=()
+build_options+=(-Xlinker -dead_strip)
 if [[ "${FOLIO_SWIFTPM_UNSANDBOXED:-0}" == 1 ]]; then build_options+=(--disable-sandbox); fi
 # Keep source/debug metadata portable; Swift otherwise embeds the builder's home/project paths.
 for prefix in "$PWD=/Folio" "$HOME=/build-user"; do

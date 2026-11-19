@@ -2,6 +2,24 @@ import SwiftUI
 import WebKit
 import FolioCore
 
+/// Resolve packaged and SwiftPM resources on this Mac, without generated absolute build paths.
+enum FolioResources {
+    private final class Anchor {}
+    static let bundle: Bundle? = {
+        let name = "FolioMac_FolioMac.bundle"
+        let anchors = [Bundle.main, Bundle(for: Anchor.self)]
+        for anchor in anchors {
+            if let url = anchor.resourceURL?.appendingPathComponent(name), let bundle = Bundle(url: url) { return bundle }
+            var directory = anchor.bundleURL
+            for _ in 0..<6 {
+                if let bundle = Bundle(url: directory.appendingPathComponent(name)) { return bundle }
+                directory.deleteLastPathComponent()
+            }
+        }
+        return nil
+    }()
+}
+
 /// WebKit is confined to offline equation typography; the reader and app remain native PDFKit/SwiftUI.
 struct MathAnswerView: View {
     let text: String
@@ -28,7 +46,7 @@ private struct EquationWebView: NSViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         configuration.userContentController.add(context.coordinator, name: "size")
-        if let url = Bundle.module.url(forResource: "katex.min", withExtension: "js", subdirectory: "Math"), let js = try? String(contentsOf: url) {
+        if let url = FolioResources.bundle?.url(forResource: "katex.min", withExtension: "js", subdirectory: "Math"), let js = try? String(contentsOf: url) {
             configuration.userContentController.addUserScript(WKUserScript(source: js, injectionTime: .atDocumentEnd, forMainFrameOnly: true))
         }
         let view = WKWebView(frame: .zero, configuration: configuration)
@@ -81,7 +99,7 @@ enum MathAnswerHTML {
         value.replacingOccurrences(of: "&", with: "&amp;").replacingOccurrences(of: "<", with: "&lt;").replacingOccurrences(of: ">", with: "&gt;").replacingOccurrences(of: "\"", with: "&quot;").replacingOccurrences(of: "'", with: "&#39;")
     }
     private static let style: String = {
-        guard let folder = Bundle.module.url(forResource: "Math", withExtension: nil),
+        guard let folder = FolioResources.bundle?.url(forResource: "Math", withExtension: nil),
               var css = try? String(contentsOf: folder.appendingPathComponent("katex.min.css")) else { return "" }
         // Inline fonts: zero file access or network access is required by the equation surface.
         let regex = try! NSRegularExpression(pattern: #"url\((fonts/[^)]+)\)"#)

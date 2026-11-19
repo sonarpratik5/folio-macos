@@ -137,6 +137,7 @@ final class ReaderParityTests: XCTestCase {
     }
 
     func testMathHTMLPreservesLaTeXAndEscapesUntrustedContentAndCode() {
+        XCTAssertNotNil(FolioResources.bundle?.url(forResource: "katex.min", withExtension: "js", subdirectory: "Math"))
         let source = #"Formula $\frac{x_1}{\sqrt{y}}$ p. 2. `<script>$x$</script>`"# + "\n\n$$\\sum_{i=1}^n i$$\n\n<script>bad()</script>"
         let html = MathAnswerHTML.document(source, pageCount: 3, dark: true)
         XCTAssertTrue(html.contains(#"data-tex='\frac{x_1}{\sqrt{y}}'"#))

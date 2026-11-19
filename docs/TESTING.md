@@ -1,11 +1,19 @@
 # Verification evidence
 
+## Portable resource lookup follow-up — 2026-11-19
+
+- Reproduced older SwiftPM’s generated absolute resource path using `swift build --build-system native -c release --scratch-path .build/native-ci` with local-cache/unsandboxed options, prefix mapping and dead stripping. After replacing Bundle.module with runtime lookup, stripping the copied executable left zero `/Users/` paths. Log `/tmp/folio-native-build-system-check.log`. This reproduces the build system, not the older SDK.
+- An initial resource lookup missed XCTest's resource bundle and failed the existing math test. Added a runtime Bundle(for:) anchor alongside the main bundle and bounded ancestor search.
+- Final host-service `CLANG_MODULE_CACHE_PATH="$PWD/.build/ModuleCache" swift test --disable-sandbox --cache-path .build/cache --config-path .build/config --security-path .build/security`: 183 cases (181 passed, two live-provider skips), including KaTeX JS discovery and inline-font HTML. Log `/tmp/folio-resource-fix-tests.log`.
+- `FOLIO_SWIFTPM_UNSANDBOXED=1 scripts/build-app.sh release`: normal model-required bundle, privacy gate and deep/strict signing passed; `/tmp/folio-resource-fix-build.log`. Context check, seven harness tests and whitespace passed. Hosted re-verification follows this commit.
+
+
 ## Hosted SDK / source-only CI repair — 2026-11-19
 
 - Failed hosted run 44501178919 at `fb858d0` compiled with an older SDK: `PullTimerGlass.Content` had no `glassEffect`. No tests ran; packaging was skipped. Timer glass now has the same compile/runtime guards as Theme.
 - Host-service `CLANG_MODULE_CACHE_PATH="$PWD/.build/ModuleCache" swift test --disable-sandbox --cache-path .build/cache --config-path .build/config --security-path .build/security`: passed 183 cases (181 passed, two live-provider skips); actual Skim weights present, so both inference tests ran. Log `/tmp/folio-ci-fix-local-tests.log`.
 - `FOLIO_SWIFTPM_UNSANDBOXED=1 scripts/build-app.sh release`: passed normal model-required packaging, privacy gate and deep/strict signing; `/tmp/folio-ci-fix-local-build.log`. Context validator, seven harness tests and whitespace checks passed.
-- Fresh-checkout CI explicitly packages without untracked weights using `FOLIO_SOURCE_ONLY_BUILD=1`; only the two actual model-inference tests skip if weights are absent. Default packaging remains model-required. Hosted results pending publication; no older-SDK success or GUI evidence claimed from local checks.
+- Fresh-checkout CI explicitly packages without untracked weights using `FOLIO_SOURCE_ONLY_BUILD=1`; only the two actual model-inference tests skip if weights are absent. Default packaging remains model-required. Hosted run 44501775312 passed the older-SDK tests, then the privacy gate rejected the generated SwiftPM resource accessor’s absolute build path. Replaced Bundle.module calls with runtime-relative FolioResources and dead stripping; local native-build-system reproduction confirms the stripped executable has zero home paths. Final hosted run follows this resource fix; no new GUI evidence claimed.
 
 
 ## Privacy packaging and README screenshots — 2026-11-19
